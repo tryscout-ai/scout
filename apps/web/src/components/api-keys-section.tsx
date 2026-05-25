@@ -21,6 +21,16 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [serverUrl] = useState(() =>
+    typeof window === "undefined" ? "" : window.location.origin
+  );
+  const bridgeCommand = revealedKey
+    ? [
+        "npx @fehey/scout-bridge",
+        serverUrl ? `--server-url ${serverUrl}` : "",
+        `--api-key ${revealedKey}`,
+      ].filter(Boolean).join(" ")
+    : "";
 
   async function loadKeys() {
     const res = await fetch(`/api/bridge/keys?server_id=${serverId}`);
@@ -103,7 +113,7 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
       {revealedKey && (
         <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3">
           <p className="text-xs font-medium text-foreground mb-2">
-            Copy this key now — it won't be shown again.
+            Copy this key now — it won&apos;t be shown again.
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 text-xs bg-background rounded px-2 py-1.5 border font-mono break-all select-all">
@@ -124,7 +134,7 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
           <div className="mt-3 rounded-md bg-background border p-2">
             <p className="text-xs text-muted-foreground mb-1">Quick start:</p>
             <code className="text-xs font-mono break-all select-all text-foreground">
-              npx @fehey/zano-bridge --api-key {revealedKey}
+              {bridgeCommand}
             </code>
           </div>
           <Button

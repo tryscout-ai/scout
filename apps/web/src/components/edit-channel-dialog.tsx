@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { GeneratedAvatar } from "./generated-avatar";
+import { normalizeLegacyBranding } from "@/lib/branding";
 
 interface Agent {
   id: string;
@@ -75,7 +76,14 @@ export function EditChannelDialog({
       .eq("owner_id", user.id)
       .order("created_at");
 
-    if (agents) setAllAgents(agents as Agent[]);
+    if (agents) {
+      setAllAgents(
+        (agents as Agent[]).map((agent) => ({
+          ...agent,
+          description: normalizeLegacyBranding(agent.description),
+        }))
+      );
+    }
 
     const { data: members } = await supabase
       .from("channel_members")

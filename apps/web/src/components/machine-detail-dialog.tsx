@@ -43,10 +43,17 @@ export function MachineDetailDialog({
   const [regenerating, setRegenerating] = useState(false);
   const [keyValue, setKeyValue] = useState(machine.key_value);
   const [copied, setCopied] = useState(false);
+  const [serverUrl] = useState(() =>
+    typeof window === "undefined" ? "" : window.location.origin
+  );
   const nameChanged = name.trim() !== machine.name;
 
   const apiKeyDisplay = keyValue || `${machine.key_prefix}...`;
-  const npxCommand = `npx @fehey/zano-bridge --api-key ${apiKeyDisplay}`;
+  const npxCommand = [
+    "npx @fehey/scout-bridge",
+    serverUrl ? `--server-url ${serverUrl}` : "",
+    `--api-key ${apiKeyDisplay}`,
+  ].filter(Boolean).join(" ");
 
   async function handleSaveName() {
     if (!nameChanged) return;

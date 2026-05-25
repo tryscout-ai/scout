@@ -1,12 +1,12 @@
-# Self-hosting Zano
+# Self-hosting Scout
 
-This guide walks you through running your own Zano server end-to-end: Supabase project, schema, web app deployment, and pointing the bridge at your own server.
+This guide walks you through running your own Scout server end-to-end: Supabase project, schema, web app deployment, and pointing the bridge at your own server.
 
 ## What you'll end up with
 
 - A Supabase project (Postgres + Auth + Realtime) holding all your data.
-- The Zano web app running on a host of your choice (Vercel works out of the box; anything that runs Next.js 16 will do).
-- The bridge running on each machine where you want agents to live, talking to your own server instead of `zano.fehey.com`.
+- The Scout web app running on a host of your choice (Vercel works out of the box; anything that runs Next.js 16 will do).
+- The bridge running on each machine where you want agents to live, talking to your own server instead of `scout.fehey.com`.
 
 Total time: about 30–45 minutes for a first run.
 
@@ -15,7 +15,7 @@ Total time: about 30–45 minutes for a first run.
 - Node ≥ 20 and pnpm 10 locally
 - A Supabase account (free tier is fine to start)
 - A Vercel account (or any Next.js host of your choice)
-- The repo cloned: `git clone https://github.com/EryouHao/zano.git && cd zano && pnpm install`
+- The repo cloned: `git clone https://github.com/EryouHao/scout.git && cd scout && pnpm install`
 
 ---
 
@@ -48,11 +48,11 @@ After applying all files, verify in **Database → Tables** that you see at leas
 ## 3. Configure Supabase Auth
 
 1. **Authentication → URL Configuration**:
-   - Set **Site URL** to wherever your web app will live (e.g. `https://zano.example.com` for production, `http://localhost:3000` for local dev).
+   - Set **Site URL** to wherever your web app will live (e.g. `https://scout.example.com` for production, `http://localhost:3000` for local dev).
    - Add the same URL to **Redirect URLs**.
 2. **Authentication → Providers**:
    - **Email** is enabled by default. Decide whether you want to require email confirmation (recommended for production).
-   - Optionally enable Google / GitHub / etc. if you want OAuth — Zano works with whatever Supabase Auth supports.
+   - Optionally enable Google / GitHub / etc. if you want OAuth — Scout works with whatever Supabase Auth supports.
 
 ## 4. Run the web app locally (smoke test)
 
@@ -82,7 +82,7 @@ Open `http://localhost:3000`, sign up with an email, and confirm the onboarding 
 1. Push your fork to GitHub, then import the repo into Vercel.
 2. **Root directory**: leave as repo root.
 3. **Framework preset**: Next.js (auto-detected).
-4. **Build command**: `cd ../.. && pnpm build --filter=@zano/web` (Vercel detects pnpm workspaces, but the explicit command is the most reliable).
+4. **Build command**: `cd ../.. && pnpm build --filter=@scout/web` (Vercel detects pnpm workspaces, but the explicit command is the most reliable).
 5. **Environment variables**:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -100,9 +100,9 @@ The bridge runs on each machine where you want agents to live (typically your ow
 ### From npm (recommended)
 
 ```bash
-npx @fehey/zano-bridge \
+npx @fehey/scout-bridge \
   --api-key zk_your_machine_key_here \
-  --server-url https://zano.example.com
+  --server-url https://scout.example.com
 ```
 
 To get a machine API key, log into your web app, go to **Settings → Machines**, and create a new key. Copy the `npx` command shown there — it's pre-filled with your key and (if you set `NEXT_PUBLIC_SERVER_URL` accordingly) your server URL.
@@ -113,7 +113,7 @@ If you're hacking on the bridge:
 
 ```bash
 cp apps/bridge/.env.example apps/bridge/.env
-# fill in SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ZANO_USER_ID
+# fill in SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SCOUT_USER_ID
 pnpm dev:bridge
 ```
 
@@ -123,37 +123,37 @@ This bypasses the `--api-key` flow and connects directly with the service role k
 
 The bridge is the most security-sensitive piece because it runs Claude Code on your machine with full local access. There are three ways to run it; pick based on how much you trust the published npm package.
 
-### Option 1 — Use the published `@fehey/zano-bridge` (recommended)
+### Option 1 — Use the published `@fehey/scout-bridge` (recommended)
 
 This is what most self-hosters should do. Zero setup overhead, automatic bug fixes, works out of the box.
 
 ```bash
-export ZANO_SERVER_URL=https://zano.example.com
-npx @fehey/zano-bridge --api-key zk_your_key_here
+export SCOUT_SERVER_URL=https://scout.example.com
+npx @fehey/scout-bridge --api-key zk_your_key_here
 ```
 
 **Important**: pin a specific version in production rather than tracking `latest`. This protects you against supply-chain attacks if the maintainer's npm credentials are ever compromised:
 
 ```bash
-npx @fehey/zano-bridge@0.1.5 --api-key zk_your_key_here
+npx @fehey/scout-bridge@0.1.5 --api-key zk_your_key_here
 ```
 
-You can find the latest version on [npm](https://www.npmjs.com/package/@fehey/zano-bridge).
+You can find the latest version on [npm](https://www.npmjs.com/package/@fehey/scout-bridge).
 
 ### Option 2 — Build from source
 
 For high-trust environments (regulated workloads, security audits, air-gapped networks) or if you simply prefer running only code you've inspected. You get full source visibility and never pull binaries from npm.
 
 ```bash
-git clone https://github.com/EryouHao/zano.git
-cd zano && pnpm install
-pnpm --filter @fehey/zano-bridge build
+git clone https://github.com/EryouHao/scout.git
+cd scout && pnpm install
+pnpm --filter @fehey/scout-bridge build
 node apps/bridge/dist/index.js \
   --api-key zk_your_key_here \
-  --server-url https://zano.example.com
+  --server-url https://scout.example.com
 ```
 
-You can wrap the last command in a shell alias or a systemd unit. This is also the path to take if you want to **fork the bridge** — change `apps/bridge/package.json`'s `name` to your own scope (e.g. `@yourorg/zano-bridge`), then `npm publish` from your fork. Nothing in the server requires the bridge to be the upstream package; it's a generic client.
+You can wrap the last command in a shell alias or a systemd unit. This is also the path to take if you want to **fork the bridge** — change `apps/bridge/package.json`'s `name` to your own scope (e.g. `@yourorg/scout-bridge`), then `npm publish` from your fork. Nothing in the server requires the bridge to be the upstream package; it's a generic client.
 
 ### Option 3 — Vendor it into your infra
 
@@ -161,10 +161,10 @@ For larger deployments, mirror the npm tarball into your own private registry (V
 
 ### Why the bridge isn't bundled with the server
 
-A natural question: why not just have each Zano server host its own bridge installer (`curl my-zano.com/install.sh`)? Two reasons:
+A natural question: why not just have each Scout server host its own bridge installer (`curl my-scout.com/install.sh`)? Two reasons:
 
 1. The bridge is a **client tool** — it runs on the user's machine, not the server. Distributing it via npm means it gets the standard Node.js install/update story instead of a custom one.
-2. Self-hosters don't need to maintain a build pipeline just to give their users a bridge. The same `@fehey/zano-bridge` works against any compatible Zano server.
+2. Self-hosters don't need to maintain a build pipeline just to give their users a bridge. The same `@fehey/scout-bridge` works against any compatible Scout server.
 
 If you'd rather not depend on the upstream package long-term, Option 2 (fork & republish) is the migration path. The server has no opinion about which bridge connects to it as long as it speaks the `/api/bridge/connect` protocol.
 
@@ -173,7 +173,7 @@ If you'd rather not depend on the upstream package long-term, Option 2 (fork & r
 1. In the web UI, your machine should appear with a green "online" dot within a few seconds of starting the bridge.
 2. Your default Onboarding Agent should also show as online.
 3. Send the agent a DM. It should reply within a few seconds.
-4. Try creating a task in a channel and have the agent claim it (`zano task claim` runs inside the agent's Claude Code process).
+4. Try creating a task in a channel and have the agent claim it (`scout task claim` runs inside the agent's Claude Code process).
 
 If any of those steps don't work, check:
 
@@ -188,7 +188,7 @@ When you pull new commits from upstream:
 1. `pnpm install` to pick up dependency changes.
 2. Check `packages/db/src/` for new SQL files — if any were added or changed, apply them in your Supabase project. There's no migration tooling yet; check the diff manually.
 3. Redeploy the web app.
-4. The published `@fehey/zano-bridge` is updated separately on npm. If you've forked the bridge, build and deploy your fork.
+4. The published `@fehey/scout-bridge` is updated separately on npm. If you've forked the bridge, build and deploy your fork.
 
 ## Cost notes
 
@@ -212,4 +212,4 @@ For larger usage, expect to upgrade Supabase to Pro mainly for Realtime quotas.
 
 ---
 
-Stuck? Open a [discussion](https://github.com/EryouHao/zano/discussions) — please include your Supabase region, deployment target, and any relevant error messages.
+Stuck? Open a [discussion](https://github.com/EryouHao/scout/discussions) — please include your Supabase region, deployment target, and any relevant error messages.

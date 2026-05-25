@@ -1,5 +1,5 @@
 -- ============================================================
--- Zano Database Schema
+-- Scout Database Schema
 -- Run this in Supabase SQL Editor to set up your database
 -- ============================================================
 
@@ -44,6 +44,7 @@ create table public.agents (
   display_name text not null,
   description text,
   system_prompt text,
+  model text default 'opus' check (model in ('opus', 'sonnet', 'haiku')),
   status text default 'offline' check (status in ('online', 'sleeping', 'offline')),
   owner_id uuid references public.profiles(id) on delete cascade not null,
   server_id uuid references public.servers(id) on delete cascade not null,
@@ -137,6 +138,36 @@ alter table public.channel_members enable row level security;
 alter table public.messages enable row level security;
 alter table public.tasks enable row level security;
 
+-- Helper functions used by RLS policies. These run as SECURITY DEFINER to
+-- avoid recursive policy checks on channel_members/agents.
+create or replace function public.user_is_channel_member(channel_uuid uuid)
+returns boolean as $$
+  select exists (
+    select 1 from public.channel_members
+    where channel_id = channel_uuid and member_id = auth.uid()
+  );
+$$ language sql security definer stable;
+
+create or replace function public.user_owns_agent(agent_uuid uuid)
+returns boolean as $$
+  select exists (
+    select 1 from public.agents
+    where id = agent_uuid and owner_id = auth.uid()
+  );
+$$ language sql security definer stable;
+
+create or replace function public.user_has_agent_in_channel(channel_uuid uuid)
+returns boolean as $$
+  select exists (
+    select 1
+    from public.channel_members cm
+    join public.agents a on a.id = cm.member_id
+    where cm.channel_id = channel_uuid
+      and cm.member_type = 'agent'
+      and a.owner_id = auth.uid()
+  );
+$$ language sql security definer stable;
+
 -- Profiles: users can read all, update own
 create policy "Profiles are viewable by everyone" on public.profiles for select using (true);
 create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
@@ -148,33 +179,31 @@ create policy "Owner can manage agents" on public.agents for all using (auth.uid
 -- Channels: members can read, creator can manage
 create policy "Channel members can view channels" on public.channels for select using (
   type = 'public' or
-  exists (
-    select 1 from public.channel_members
-    where channel_id = id and member_id = auth.uid()
-  )
+  public.user_is_channel_member(id) or
+  public.user_has_agent_in_channel(id)
 );
 create policy "Authenticated users can create channels" on public.channels for insert with check (auth.uid() = created_by);
 
 -- Channel members: members can view
 create policy "Members can view channel membership" on public.channel_members for select using (
-  exists (
-    select 1 from public.channel_members cm
-    where cm.channel_id = channel_members.channel_id and cm.member_id = auth.uid()
-  )
+  public.user_is_channel_member(channel_id) or
+  public.user_has_agent_in_channel(channel_id)
 );
 
--- Messages: channel members can read and write
+-- Messages: channel members can read, and bridges can operate as owned agents
 create policy "Channel members can view messages" on public.messages for select using (
-  exists (
-    select 1 from public.channel_members
-    where channel_id = messages.channel_id and member_id = auth.uid()
-  )
+  public.user_is_channel_member(channel_id) or
+  public.user_has_agent_in_channel(channel_id)
 );
 create policy "Channel members can send messages" on public.messages for insert with check (
-  auth.uid() = sender_id and
-  exists (
-    select 1 from public.channel_members
-    where channel_id = messages.channel_id and member_id = auth.uid()
+  (
+    sender_id = auth.uid()
+    and public.user_is_channel_member(channel_id)
+  )
+  or (
+    sender_type = 'agent'
+    and public.user_owns_agent(sender_id)
+    and public.user_has_agent_in_channel(channel_id)
   )
 );
 

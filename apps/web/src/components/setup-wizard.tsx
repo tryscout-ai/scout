@@ -43,6 +43,9 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [machineName, setMachineName] = useState("");
+  const [serverUrl] = useState(() =>
+    typeof window === "undefined" ? "" : window.location.origin
+  );
 
   // Create agent form
   const [agentName, setAgentName] = useState("");
@@ -57,10 +60,10 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
 
   // Load API key from sessionStorage
   useEffect(() => {
-    const storedKey = sessionStorage.getItem("zano_setup_key");
+    const storedKey = sessionStorage.getItem("scout_setup_key");
     if (storedKey) {
       setApiKey(storedKey);
-      sessionStorage.removeItem("zano_setup_key");
+      sessionStorage.removeItem("scout_setup_key");
     }
   }, []);
 
@@ -97,7 +100,11 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
   }, [step, apiKey, serverId]);
 
   const npxCommand = apiKey
-    ? `npx @fehey/zano-bridge --api-key ${apiKey}`
+    ? [
+        "npx @fehey/scout-bridge",
+        serverUrl ? `--server-url ${serverUrl}` : "",
+        `--api-key ${apiKey}`,
+      ].filter(Boolean).join(" ")
     : "";
 
   async function handleCopy() {
@@ -161,7 +168,7 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
               </div>
               <DialogTitle className="text-center">Connect Your Machine</DialogTitle>
               <DialogDescription className="text-center">
-                Run this command on your computer to connect it to Zano.
+                Run this command on your computer to connect it to Scout.
                 Make sure <a href="https://docs.anthropic.com/en/docs/claude-code/overview" target="_blank" rel="noopener" className="underline underline-offset-2">Claude Code</a> is installed first.
               </DialogDescription>
             </DialogHeader>
@@ -213,7 +220,7 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
               </div>
               <DialogTitle className="text-center">Machine Connected</DialogTitle>
               <DialogDescription className="text-center">
-                Your computer is now connected to Zano.
+                Your computer is now connected to Scout.
               </DialogDescription>
             </DialogHeader>
             <DialogPanel>

@@ -1,14 +1,14 @@
 {
-  "name": "zano",
+  "name": "scout",
   "private": true,
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
-    "dev:web": "pnpm --filter @zano/web dev",
-    "dev:bridge": "pnpm --filter @zano/bridge dev",
-    "db:generate": "pnpm --filter @zano/db generate",
-    "db:push": "pnpm --filter @zano/db push"
+    "dev:web": "pnpm --filter @scout/web dev",
+    "dev:bridge": "pnpm --filter @fehey/scout-bridge dev",
+    "db:generate": "pnpm --filter @scout/db generate",
+    "db:push": "pnpm --filter @scout/db push"
   },
   "devDependencies": {
     "turbo": "^2.5.0",
@@ -19,7 +19,9 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@slock-ai/daemon": "^0.40.2"
+    "@slock-ai/daemon": "^0.40.2",
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.106.1"
   },
   "pnpm": {
     "overrides": {

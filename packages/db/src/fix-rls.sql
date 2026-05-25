@@ -9,12 +9,35 @@ RETURNS boolean AS $$
   );
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
+CREATE OR REPLACE FUNCTION public.user_owns_agent(agent_uuid uuid)
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.agents
+    WHERE id = agent_uuid AND owner_id = auth.uid()
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION public.user_has_agent_in_channel(channel_uuid uuid)
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.channel_members cm
+    JOIN public.agents a ON a.id = cm.member_id
+    WHERE cm.channel_id = channel_uuid
+      AND cm.member_type = 'agent'
+      AND a.owner_id = auth.uid()
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
 -- Channel members: users can see ALL members of channels they belong to
 DROP POLICY IF EXISTS "Members can view channel membership" ON public.channel_members;
 DROP POLICY IF EXISTS "Users can view own channel memberships" ON public.channel_members;
 CREATE POLICY "Users can view channel memberships"
   ON public.channel_members FOR SELECT
-  USING (public.user_is_channel_member(channel_id));
+  USING (
+    public.user_is_channel_member(channel_id)
+    OR public.user_has_agent_in_channel(channel_id)
+  );
 
 -- Also allow inserting members (for channel creation flow)
 DROP POLICY IF EXISTS "Users can add channel members" ON public.channel_members;
@@ -32,6 +55,7 @@ CREATE POLICY "Users can view their channels"
     OR id IN (
       SELECT channel_id FROM public.channel_members WHERE member_id = auth.uid()
     )
+    OR public.user_has_agent_in_channel(id)
   );
 
 -- Messages: users can see messages in channels they're members of
@@ -39,19 +63,24 @@ DROP POLICY IF EXISTS "Channel members can view messages" ON public.messages;
 CREATE POLICY "Users can view messages in their channels"
   ON public.messages FOR SELECT
   USING (
-    channel_id IN (
-      SELECT channel_id FROM public.channel_members WHERE member_id = auth.uid()
-    )
+    public.user_is_channel_member(channel_id)
+    OR public.user_has_agent_in_channel(channel_id)
   );
 
--- Messages: users can send messages in channels they're members of
+-- Messages: users can send as themselves, and bridges can send as owned agents
 DROP POLICY IF EXISTS "Channel members can send messages" ON public.messages;
+DROP POLICY IF EXISTS "Users can send messages in their channels" ON public.messages;
 CREATE POLICY "Users can send messages in their channels"
   ON public.messages FOR INSERT
   WITH CHECK (
-    sender_id = auth.uid()
-    AND channel_id IN (
-      SELECT channel_id FROM public.channel_members WHERE member_id = auth.uid()
+    (
+      sender_id = auth.uid()
+      AND public.user_is_channel_member(channel_id)
+    )
+    OR (
+      sender_type = 'agent'
+      AND public.user_owns_agent(sender_id)
+      AND public.user_has_agent_in_channel(channel_id)
     )
   );
 

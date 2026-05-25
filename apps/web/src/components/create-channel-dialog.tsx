@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { GeneratedAvatar } from "./generated-avatar";
+import { normalizeLegacyBranding } from "@/lib/branding";
 
 interface Agent {
   id: string;
@@ -71,7 +72,14 @@ export function CreateChannelDialog({
       .eq("server_id", serverId)
       .order("created_at");
 
-    if (data) setAgents(data as Agent[]);
+    if (data) {
+      setAgents(
+        (data as Agent[]).map((agent) => ({
+          ...agent,
+          description: normalizeLegacyBranding(agent.description),
+        }))
+      );
+    }
   }
 
   function toggleAgent(agentId: string) {

@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { createRequire } from "node:module";
 import { spawn, ChildProcess } from "child_process";
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
+import { normalizeLegacyBranding } from "./branding.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 
 type AgentActivity = "idle" | "thinking" | "working" | "error";
@@ -12,6 +13,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const ACTIVITY_HEARTBEAT_MS = 60_000; // Re-broadcast active state every 60s
+const CODEX_TURN_TIMEOUT_MS = Number(process.env.SCOUT_CODEX_TURN_TIMEOUT_MS || 300_000);
+const AGENT_RUNNER = (process.env.SCOUT_AGENT_RUNNER || "codex").toLowerCase();
 
 interface AgentRecord {
   id: string;
@@ -32,7 +35,7 @@ interface AgentSession {
 
 interface QueuedMessage {
   userMessage: string;
-  resolve: () => void;
+  resolve: (value: string | void) => void;
   reject: (err: Error) => void;
 }
 
@@ -48,6 +51,7 @@ interface AgentProcess {
   messageQueue: QueuedMessage[];
   /** Accumulated text content from assistant text events */
   pendingText: string;
+  runner: "claude" | "codex";
 }
 
 export class AgentManager {
@@ -143,6 +147,14 @@ export class AgentManager {
     });
   }
 
+  markIdle(agentId: string) {
+    this.broadcastActivity(agentId, "idle", "Idle", "");
+  }
+
+  markError(agentId: string, message: string) {
+    this.broadcastActivity(agentId, "error", "Error", message);
+  }
+
   /**
    * Map a tool_use event to a human-readable label and detail string.
    * e.g. Read → ("Reading file", "/path/to/file")
@@ -163,8 +175,8 @@ export class AgentManager {
 
       case "Bash": {
         const cmd: string = input.command || "";
-        // Detect zano/slock message send
-        const msgMatch = cmd.match(/(?:zano|slock)\s+message\s+send\s+--target\s+"?([^"]+)"?/);
+        // Detect scout/slock message send
+        const msgMatch = cmd.match(/(?:scout|slock)\s+message\s+send\s+--target\s+"?([^"]+)"?/);
         if (msgMatch) {
           return { label: "Sending message", detail: msgMatch[1] };
         }
@@ -242,7 +254,7 @@ export class AgentManager {
       const memoryContent = `# ${agent.display_name}
 
 ## Role
-${agent.description || agent.display_name}
+${normalizeLegacyBranding(agent.description || agent.display_name)}
 
 ## Key Knowledge
 - No notes saved yet. Knowledge will accumulate through conversations.
@@ -255,6 +267,7 @@ ${agent.description || agent.display_name}
       console.log(`  [${agent.display_name}] Workspace created: ${workDir}`);
     } else {
       console.log(`  [${agent.display_name}] Workspace exists: ${workDir}`);
+      this.migrateLegacyBrandingInMemory(join(workDir, "MEMORY.md"));
     }
 
     // Initialize session
@@ -272,12 +285,23 @@ ${agent.description || agent.display_name}
       .eq("id", agentId);
   }
 
+  private migrateLegacyBrandingInMemory(memoryPath: string): string {
+    if (!existsSync(memoryPath)) return "";
+
+    const original = readFileSync(memoryPath, "utf-8");
+    const normalized = normalizeLegacyBranding(original);
+    if (normalized !== original) {
+      writeFileSync(memoryPath, normalized);
+    }
+    return normalized;
+  }
+
   /**
    * Send a message to an agent. Messages are queued and processed
    * sequentially — the next message is only sent after the current
    * turn completes (indicated by a "result" stream-json event).
    */
-  async sendToAgent(agentId: string, userMessage: string): Promise<void> {
+  async sendToAgent(agentId: string, userMessage: string): Promise<string | void> {
     const session = this.sessions.get(agentId);
     if (!session) {
       throw new Error(`Agent ${agentId} not initialized`);
@@ -291,11 +315,8 @@ ${agent.description || agent.display_name}
       .single();
 
     // Get MEMORY.md content
-    let memoryContext = "";
     const memoryPath = join(session.workDir, "MEMORY.md");
-    if (existsSync(memoryPath)) {
-      memoryContext = readFileSync(memoryPath, "utf-8");
-    }
+    const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
 
     const systemPrompt = buildSystemPrompt(agent, memoryContext);
 
@@ -312,13 +333,12 @@ ${agent.description || agent.display_name}
       console.log(
         `  [${displayName}] Agent busy, queueing message (${userMessage.length} chars, queue size: ${agentProc.messageQueue.length + 1})...`
       );
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<string | void>((resolve, reject) => {
         agentProc!.messageQueue.push({ userMessage, resolve, reject });
       });
     }
 
-    // Send immediately
-    this.deliverMessage(agentId, agentProc, session, userMessage);
+    return this.deliverMessage(agentId, agentProc, session, userMessage);
   }
 
   /** Write a message to the agent's stdin and mark it as busy */
@@ -327,8 +347,18 @@ ${agent.description || agent.display_name}
     agentProc: AgentProcess,
     session: AgentSession,
     userMessage: string
-  ) {
+  ): Promise<string | void> | void {
     agentProc.busy = true;
+
+    const displayName = session.displayName;
+    console.log(
+      `  [${displayName}] Forwarding message (${userMessage.length} chars)...`
+    );
+    this.broadcastActivity(agentId, "working", "Working", "Message received");
+
+    if (agentProc.runner === "codex") {
+      return this.runCodexTurn(agentId, agentProc, session, userMessage);
+    }
 
     const stdinMsg = JSON.stringify({
       type: "user",
@@ -339,11 +369,6 @@ ${agent.description || agent.display_name}
       ...(agentProc.sessionId ? { session_id: agentProc.sessionId } : {}),
     });
 
-    const displayName = session.displayName;
-    console.log(
-      `  [${displayName}] Forwarding message (${userMessage.length} chars)...`
-    );
-    this.broadcastActivity(agentId, "working", "Working", "Message received");
     agentProc.proc.stdin?.write(stdinMsg + "\n");
   }
 
@@ -357,9 +382,17 @@ ${agent.description || agent.display_name}
       console.log(
         `  [${session.displayName}] Draining queue (${agentProc.messageQueue.length} remaining)...`
       );
-      this.deliverMessage(agentId, agentProc, session, next.userMessage);
-      // Resolve the queued promise — message has been delivered
-      next.resolve();
+      const delivered = this.deliverMessage(
+        agentId,
+        agentProc,
+        session,
+        next.userMessage
+      );
+      if (delivered && typeof delivered.then === "function") {
+        delivered.then(next.resolve, next.reject);
+      } else {
+        next.resolve();
+      }
     }
   }
 
@@ -401,11 +434,8 @@ ${agent.description || agent.display_name}
       .eq("id", agentId)
       .single();
 
-    let memoryContext = "";
     const memoryPath = join(session.workDir, "MEMORY.md");
-    if (existsSync(memoryPath)) {
-      memoryContext = readFileSync(memoryPath, "utf-8");
-    }
+    const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
 
     const systemPrompt = buildSystemPrompt(agent, memoryContext);
 
@@ -429,22 +459,22 @@ ${agent.description || agent.display_name}
 
   /**
    * Set up CLI transport for the agent — writes a bash wrapper script
-   * and env config into .zano/ directory in agent workspace.
-   * Returns the .zano/ directory path (to prepend to PATH).
+   * and env config into .scout/ directory in agent workspace.
+   * Returns the .scout/ directory path (to prepend to PATH).
    */
   private prepareCliTransport(agentId: string, session: AgentSession): string {
-    const zanoDir = join(session.workDir, ".zano");
-    if (!existsSync(zanoDir)) {
-      mkdirSync(zanoDir, { recursive: true });
+    const scoutDir = join(session.workDir, ".scout");
+    if (!existsSync(scoutDir)) {
+      mkdirSync(scoutDir, { recursive: true });
     }
 
-    const wrapperPath = join(zanoDir, "zano");
+    const wrapperPath = join(scoutDir, "scout");
     let wrapperBody: string;
 
-    // Try to resolve the compiled CLI from @fehey/zano-cli npm package first
+    // Try to resolve the compiled CLI from @fehey/scout-cli npm package first
     try {
       const req = createRequire(import.meta.url);
-      const cliPath = req.resolve("@fehey/zano-cli/dist/index.js");
+      const cliPath = req.resolve("@fehey/scout-cli/dist/index.js");
       // Published mode: use node to run compiled JS directly
       wrapperBody = `#!/usr/bin/env bash\nexec node '${cliPath.replace(/'/g, "'\\''")}' "$@"\n`;
       console.log(`  [${session.displayName}] CLI resolved from npm package: ${cliPath}`);
@@ -459,7 +489,7 @@ ${agent.description || agent.display_name}
 
     writeFileSync(wrapperPath, wrapperBody, { mode: 0o755 });
     console.log(`  [${session.displayName}] CLI wrapper written: ${wrapperPath}`);
-    return zanoDir;
+    return scoutDir;
   }
 
   private async spawnProcess(
@@ -468,8 +498,65 @@ ${agent.description || agent.display_name}
     systemPrompt: string,
     model: string = "opus"
   ): Promise<AgentProcess> {
-    // Prepare CLI transport (.zano/ wrapper + env vars)
-    const zanoDir = this.prepareCliTransport(agentId, session);
+    // Prepare CLI transport (.scout/ wrapper + env vars)
+    const scoutDir = this.prepareCliTransport(agentId, session);
+
+    const prevProc = this.processes.get(agentId);
+    const runner: "claude" | "codex" = AGENT_RUNNER === "claude" ? "claude" : "codex";
+
+    if (runner === "codex") {
+      console.log(`  [${session.displayName}] Preparing Codex runner...`);
+      const proc = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {
+        cwd: session.workDir,
+        env: {
+          ...process.env,
+          FORCE_COLOR: "0",
+          NO_COLOR: "1",
+          SCOUT_AGENT_ID: agentId,
+          SCOUT_SUPABASE_URL: this.supabaseUrl,
+          SCOUT_SUPABASE_KEY: this.supabaseKey,
+          SCOUT_AUTH_TOKEN: this.authToken,
+          PATH: `${scoutDir}:${process.env.PATH ?? ""}`,
+        },
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+
+      const agentProc: AgentProcess = {
+        proc,
+        sessionId: prevProc?.sessionId || null,
+        busy: false,
+        stdoutBuffer: "",
+        activity: "working",
+        activityLabel: "Working",
+        activityDetail: "Starting...",
+        heartbeatTimer: null,
+        messageQueue: [],
+        pendingText: "",
+        runner,
+      };
+
+      this.broadcastActivity(agentId, "idle", "Idle", "");
+
+      proc.stderr?.on("data", (chunk: Buffer) => {
+        const text = chunk.toString().trim();
+        if (!text) return;
+        console.error(`  [${session.displayName}] codex-runner stderr: ${text.substring(0, 200)}`);
+      });
+
+      proc.on("error", (err: Error) => {
+        console.error(`  [${session.displayName}] Process error: ${err.message}`);
+      });
+
+      proc.on("close", (code: number | null) => {
+        console.log(`  [${session.displayName}] Process exited with code ${code}`);
+        for (const queued of agentProc.messageQueue) {
+          queued.reject(new Error(`Agent process exited with code ${code}`));
+        }
+        agentProc.messageQueue = [];
+      });
+
+      return agentProc;
+    }
 
     const args = [
       "--output-format",
@@ -486,7 +573,6 @@ ${agent.description || agent.display_name}
     ];
 
     // Resume previous session: check in-memory first, then Supabase
-    const prevProc = this.processes.get(agentId);
     const sessionId =
       prevProc?.sessionId || (await this.loadSessionId(agentId));
     if (sessionId) {
@@ -504,12 +590,12 @@ ${agent.description || agent.display_name}
         FORCE_COLOR: "0",
         NO_COLOR: "1",
         // CLI injection: agent identity + Supabase credentials
-        ZANO_AGENT_ID: agentId,
-        ZANO_SUPABASE_URL: this.supabaseUrl,
-        ZANO_SUPABASE_KEY: this.supabaseKey,
-        ZANO_AUTH_TOKEN: this.authToken,
-        // Prepend .zano/ to PATH so `zano` command is available
-        PATH: `${zanoDir}:${process.env.PATH ?? ""}`,
+        SCOUT_AGENT_ID: agentId,
+        SCOUT_SUPABASE_URL: this.supabaseUrl,
+        SCOUT_SUPABASE_KEY: this.supabaseKey,
+        SCOUT_AUTH_TOKEN: this.authToken,
+        // Prepend .scout/ to PATH so `scout` command is available
+        PATH: `${scoutDir}:${process.env.PATH ?? ""}`,
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -525,6 +611,7 @@ ${agent.description || agent.display_name}
       heartbeatTimer: null,
       messageQueue: [],
       pendingText: "",
+      runner,
     };
 
     // Broadcast initial activity
@@ -568,6 +655,181 @@ ${agent.description || agent.display_name}
     });
 
     return agentProc;
+  }
+
+  private async runCodexTurn(
+    agentId: string,
+    agentProc: AgentProcess,
+    session: AgentSession,
+    userMessage: string
+  ): Promise<string> {
+    const memoryPath = join(session.workDir, "MEMORY.md");
+    const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
+
+    try {
+      const { data: agent } = await this.supabase
+        .from("agents")
+        .select("*")
+        .eq("id", agentId)
+        .single();
+
+      const systemPrompt = buildSystemPrompt(agent, memoryContext);
+      const prompt = `${systemPrompt}
+
+## Codex bridge response mode
+
+For this one-shot Codex runner, do not send the chat reply with \`scout message send\`.
+Return the exact message that should appear in chat as your final answer.
+
+${userMessage}`;
+      const args = [
+        "--search",
+        "exec",
+        "--skip-git-repo-check",
+        "--json",
+        "--color",
+        "never",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-C",
+        session.workDir,
+      ];
+
+      console.log(`  [${session.displayName}] Spawning Codex exec (one-shot turn)...`);
+
+      const turnProc = spawn("codex", args, {
+        cwd: session.workDir,
+        env: {
+          ...process.env,
+          FORCE_COLOR: "0",
+          NO_COLOR: "1",
+          SCOUT_AGENT_ID: agentId,
+          SCOUT_SUPABASE_URL: this.supabaseUrl,
+          SCOUT_SUPABASE_KEY: this.supabaseKey,
+          SCOUT_AUTH_TOKEN: this.authToken,
+          PATH: `${join(session.workDir, ".scout")}:${process.env.PATH ?? ""}`,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      turnProc.stdin?.on("error", (err: Error & { code?: string }) => {
+        if (err.code !== "EPIPE") {
+          console.error(`  [${session.displayName}] stdin error: ${err.message}`);
+        }
+      });
+      turnProc.stdin?.end(prompt);
+
+      let stdoutBuffer = "";
+      let finalText = "";
+
+      return await new Promise<string>((resolve, reject) => {
+        let settled = false;
+        const timeout = setTimeout(() => {
+          finish(() => {
+            turnProc.kill();
+            agentProc.busy = false;
+            this.broadcastActivity(agentId, "error", "Error", "Codex turn timed out");
+            this.drainQueue(agentId, agentProc);
+            reject(new Error("Codex turn timed out"));
+          });
+        }, CODEX_TURN_TIMEOUT_MS);
+
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          fn();
+        };
+
+        turnProc.stdout?.on("data", (chunk: Buffer) => {
+          stdoutBuffer += chunk.toString();
+          const lines = stdoutBuffer.split("\n");
+          stdoutBuffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("{")) continue;
+            finalText = this.handleCodexStreamEvent(agentId, agentProc, trimmed, finalText);
+          }
+        });
+
+        turnProc.stderr?.on("data", (chunk: Buffer) => {
+          const text = chunk.toString().trim();
+          if (!text) return;
+          if (/Reading additional input from stdin|Reading prompt from stdin|startup remote plugin sync failed|featured plugin ids cache/i.test(text)) {
+            return;
+          }
+          console.error(`  [${session.displayName}] stderr: ${text.substring(0, 200)}`);
+        });
+
+        turnProc.on("error", (err: Error) => {
+          finish(() => {
+            agentProc.busy = false;
+            this.broadcastActivity(agentId, "error", "Error", err.message);
+            console.error(`  [${session.displayName}] Process error: ${err.message}`);
+            this.drainQueue(agentId, agentProc);
+            reject(err);
+          });
+        });
+
+        turnProc.on("close", (code: number | null) => {
+          finish(() => {
+            if (code !== 0) {
+              agentProc.busy = false;
+              this.broadcastActivity(agentId, "error", "Error", `Codex exited with code ${code}`);
+              console.log(`  [${session.displayName}] Codex turn exited with code ${code}`);
+              this.drainQueue(agentId, agentProc);
+              reject(new Error(`Codex exited with code ${code}`));
+              return;
+            }
+
+            agentProc.busy = false;
+            this.broadcastActivity(agentId, "idle", "Idle", "");
+            this.drainQueue(agentId, agentProc);
+            resolve(finalText.trim());
+          });
+        });
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      agentProc.busy = false;
+      this.broadcastActivity(agentId, "error", "Error", message);
+      console.error(`  [${session.displayName}] Failed to start Codex turn: ${message}`);
+      this.drainQueue(agentId, agentProc);
+      throw err instanceof Error ? err : new Error(message);
+    }
+  }
+
+  private handleCodexStreamEvent(
+    agentId: string,
+    agentProc: AgentProcess,
+    line: string,
+    finalText: string
+  ): string {
+    let event: any;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      return finalText;
+    }
+
+    const session = this.sessions.get(agentId);
+    const displayName = session?.displayName || agentId;
+
+    switch (event.type) {
+      case "turn.started":
+        this.broadcastActivity(agentId, "thinking", "Thinking", "");
+        break;
+      case "item.completed":
+        if (event.item?.type === "agent_message" && event.item?.text) {
+          finalText = event.item.text;
+          this.broadcastActivity(agentId, "working", "", event.item.text);
+        }
+        break;
+      case "turn.completed":
+        console.log(`  [${displayName}] Turn complete.`);
+        break;
+    }
+
+    return finalText;
   }
 
   private handleStreamEvent(

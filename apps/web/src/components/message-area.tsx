@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { GeneratedAvatar } from './generated-avatar';
+import { normalizeLegacyBranding } from '@/lib/branding';
 
 interface Message {
   id: string;
@@ -101,12 +102,18 @@ export function MessageArea({
         if (agentsData) {
           const agentMap = new Map<string, AgentInfo>();
           for (const a of agentsData) {
-            agentMap.set(a.id, a as AgentInfo);
+            agentMap.set(a.id, {
+              ...(a as AgentInfo),
+              description: normalizeLegacyBranding(a.description),
+            });
           }
           setChannelAgents(agentMap);
 
           if (channel!.type === 'dm' && agentsData.length === 1) {
-            setAgentInfo(agentsData[0] as AgentInfo);
+            setAgentInfo({
+              ...(agentsData[0] as AgentInfo),
+              description: normalizeLegacyBranding(agentsData[0].description),
+            });
           }
         }
       }

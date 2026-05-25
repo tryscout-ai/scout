@@ -323,6 +323,37 @@ export class Bridge {
     return channelId;
   }
 
+  private async sendAgentReply(
+    agentId: string,
+    msg: DbMessage,
+    replyText: string
+  ) {
+    const text = replyText.trim();
+    if (!text) return;
+
+    const payload: {
+      channel_id: string;
+      sender_id: string;
+      sender_type: "agent";
+      content: string;
+      thread_parent_id?: string;
+    } = {
+      channel_id: msg.channel_id,
+      sender_id: agentId,
+      sender_type: "agent",
+      content: text,
+    };
+
+    if (msg.thread_parent_id) {
+      payload.thread_parent_id = msg.thread_parent_id;
+    }
+
+    const { error } = await this.supabase.from("messages").insert(payload);
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
   private async handleNewMessage(msg: DbMessage) {
     // Only respond to human messages
     if (msg.sender_type !== "human") return;
@@ -386,9 +417,16 @@ export class Bridge {
           ? `${contextPrefix}\n\n${msgHeader} ${msg.content}`
           : `${msgHeader} ${msg.content}`;
 
-        // Fire-and-forget: agent handles all responses via `zano` CLI
-        await this.agentManager.sendToAgent(agentId, prompt);
+        // Fire-and-forget: agent handles all responses via `scout` CLI
+        const reply = await this.agentManager.sendToAgent(agentId, prompt);
+        if (typeof reply === "string" && reply.trim()) {
+          await this.sendAgentReply(agentId, msg, reply);
+        }
       } catch (err) {
+        this.agentManager.markError(
+          agentId,
+          err instanceof Error ? err.message : String(err)
+        );
         console.error(
           `  [${agent.display_name}] Error:`,
           err instanceof Error ? err.message : err

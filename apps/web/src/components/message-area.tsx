@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { GearSix } from '@phosphor-icons/react';
+import { GearSix, UserPlus } from '@phosphor-icons/react';
 import TiptapMessageInput, { type TiptapMessageInputHandle } from './tiptap-message-input';
 import { useAgentActivity } from '@/hooks/use-agent-activity';
 import { Button } from '@/components/ui/button';
@@ -43,10 +43,12 @@ export function MessageArea({
   channel,
   onToggleSettings,
   showSettings,
+  onManageChannel,
 }: {
   channel: Channel | null;
   onToggleSettings?: (agent: AgentInfo | null) => void;
   showSettings?: boolean;
+  onManageChannel?: (channel: Channel) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasContent, setHasContent] = useState(false);
@@ -422,6 +424,16 @@ export function MessageArea({
                   <GeneratedAvatar key={agent.id} id={agent.id} name={agent.display_name} size="xs" />
                 ))}
               </div>
+            )}
+            {onManageChannel && (
+              <Button
+                onClick={() => onManageChannel(channel)}
+                variant="ghost"
+                size="xs"
+                aria-label="Invite agents to channel">
+                <UserPlus size={16} />
+                Invite agents
+              </Button>
             )}
           </>
         )}

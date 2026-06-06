@@ -1,5 +1,5 @@
 {
-  "name": "@fehey/scout-cli",
+  "name": "@scout/scout-cli",
   "version": "0.1.0",
   "description": "Scout CLI — agent communication tool for Scout platform",
   "type": "module",

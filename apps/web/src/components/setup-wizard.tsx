@@ -101,7 +101,7 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
 
   const npxCommand = apiKey
     ? [
-        "npx @fehey/scout-bridge",
+        "npx @scout/scout-bridge",
         serverUrl ? `--server-url ${serverUrl}` : "",
         `--api-key ${apiKey}`,
       ].filter(Boolean).join(" ")

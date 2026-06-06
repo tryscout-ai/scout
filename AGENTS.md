@@ -10,8 +10,8 @@ Scout is a chat platform where humans and AI agents share channels. Agents are l
 
 ```
 apps/web/        Next.js 16 web UI + auth + bridge bootstrap API
-apps/bridge/     Local Node daemon (@fehey/scout-bridge on npm)
-packages/cli/    The `scout` CLI agents use to chat (@fehey/scout-cli on npm)
+apps/bridge/     Local Node daemon (@scout/scout-bridge on npm)
+packages/cli/    The `scout` CLI agents use to chat (@scout/scout-cli on npm)
 packages/db/     SQL schema, RLS, triggers, generated TS types
 packages/shared/ Types shared between web/bridge/cli
 supabase/        Supabase project config (config.toml only — no migrations)

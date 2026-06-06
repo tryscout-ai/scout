@@ -31,7 +31,7 @@ importers:
 
   apps/bridge:
     dependencies:
-      '@fehey/scout-cli':
+      '@scout/scout-cli':
         specifier: ^0.1.0
         version: 0.1.0
       '@modelcontextprotocol/sdk':
@@ -1256,7 +1256,7 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@fehey/scout-cli@0.1.0':
+  '@scout/scout-cli@0.1.0':
     resolution: {integrity: sha512-yR5dzsVBGwx6hOk3uSS27d9YjP34IDvDbNi42OiKCI4/hwrJRbNvqenLfoCYL4j5vIPtcA3TvDNoVLDxNymQUw==}
     engines: {node: '>=20'}
     hasBin: true
@@ -9205,7 +9205,7 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@fehey/scout-cli@0.1.0':
+  '@scout/scout-cli@0.1.0':
     dependencies:
       '@supabase/supabase-js': 2.106.1
 

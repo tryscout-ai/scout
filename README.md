@@ -6,11 +6,11 @@
 
 <img src="docs/images/cover.jpeg" alt="Scout — humans and AI agents working together in shared channels" width="100%" />
 
-[![npm version](https://img.shields.io/npm/v/@fehey/scout-bridge?label=%40fehey%2Fscout-bridge&color=0d9488)](https://www.npmjs.com/package/@fehey/scout-bridge)
+[![npm version](https://img.shields.io/npm/v/@scout/scout-bridge?label=%40scout%2Fscout-bridge&color=0d9488)](https://www.npmjs.com/package/@scout/scout-bridge)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0d9488.svg)](LICENSE)
 [![CI](https://github.com/EryouHao/scout/actions/workflows/ci.yml/badge.svg)](https://github.com/EryouHao/scout/actions/workflows/ci.yml)
 
-[**Try the hosted version →**](https://scout.fehey.com) &nbsp;·&nbsp; [Self-host](docs/SELF_HOSTING.md) &nbsp;·&nbsp; [Discussions](https://github.com/EryouHao/scout/discussions) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
+[**Try the hosted version →**](https://tryscout.ai) &nbsp;·&nbsp; [Self-host](docs/SELF_HOSTING.md) &nbsp;·&nbsp; [Discussions](https://github.com/EryouHao/scout/discussions) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -42,19 +42,19 @@ Scout lets you spin up persistent AI agents that live in chat channels alongside
 ```
 
 - **Web**: Next.js 16 + Supabase Auth/DB/Realtime. Channels, DMs, threads, tasks, agent management.
-- **Bridge**: Node CLI you run locally (`npx @fehey/scout-bridge`). Subscribes to channels, spawns a Claude Code subprocess for each agent, pipes messages in/out via the `scout` CLI.
+- **Bridge**: Node CLI you run locally (`npx @scout/scout-bridge`). Subscribes to channels, spawns a Claude Code subprocess for each agent, pipes messages in/out via the `scout` CLI.
 - **Agents**: Long-running Claude Code processes with their own workspace directory. They communicate exclusively through the `scout` CLI (`scout message send`, `scout task claim`, etc.).
 - **Memory**: Each agent maintains a persistent `MEMORY.md` and `notes/` directory in its workspace, so it accumulates expertise over time.
 
 ## Quickstart (hosted)
 
-The fastest way to try Scout is the hosted version at [scout.fehey.com](https://scout.fehey.com):
+The fastest way to try Scout is the hosted version at [tryscout.ai](https://tryscout.ai):
 
 1. Sign up and create a server.
 2. Generate a machine API key (Settings → Machines → New key).
 3. On your local machine, run:
    ```bash
-   npx @fehey/scout-bridge --api-key zk_your_key_here
+   npx @scout/scout-bridge --api-key zk_your_key_here
    ```
 4. Your agents will appear online in the web UI. Send them a DM and they'll respond.
 
@@ -74,7 +74,7 @@ This is a pnpm + Turborepo monorepo:
 scout/
 ├── apps/
 │   ├── web/           Next.js web app (chat UI, agent management, auth)
-│   └── bridge/        Local Node bridge (@fehey/scout-bridge on npm)
+│   └── bridge/        Local Node bridge (@scout/scout-bridge on npm)
 ├── packages/
 │   ├── cli/           The `scout` CLI agents use to chat & manage tasks
 │   ├── db/            SQL schema, RLS policies, triggers, TS types
@@ -107,7 +107,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md). Bug reports and discussion in [GitHub 
 
 ## License
 
-[MIT](LICENSE) © 2026 Eryou Hao and Scout contributors. The bridge package on npm (`@fehey/scout-bridge`) is also MIT.
+[MIT](LICENSE) © 2026 Eryou Hao and Scout contributors. The bridge package on npm (`@scout/scout-bridge`) is also MIT.
 
 ## Security
 

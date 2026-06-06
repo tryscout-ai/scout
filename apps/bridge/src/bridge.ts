@@ -244,12 +244,21 @@ export class Bridge {
     for (const agentId of channelAgentIds) {
       const agent = this.agentRecords.get(agentId);
       if (!agent) continue;
+      const mentionNames = new Set([
+        agent.display_name,
+        agent.name,
+        agent.display_name.replace(/\s+/g, ""),
+      ]);
+
       // Match @DisplayName followed by whitespace, punctuation, or end of string
       // (don't use \b — it doesn't work with CJK characters)
-      const escaped = agent.display_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const pattern = new RegExp(`@${escaped}(?=[\\s,.:!?，。！？、；]|$)`, "i");
-      if (pattern.test(content)) {
-        mentioned.add(agentId);
+      for (const name of mentionNames) {
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(`@${escaped}(?=[\\s,.:!?，。！？、；]|$)`, "i");
+        if (pattern.test(content)) {
+          mentioned.add(agentId);
+          break;
+        }
       }
     }
     return mentioned;

@@ -128,6 +128,48 @@ create table public.tasks (
 create index idx_tasks_channel on public.tasks(channel_id, task_number);
 
 -- -----------------------------------------------------------
+-- Slack Integration MVP
+-- -----------------------------------------------------------
+create table public.slack_channel_mappings (
+  id uuid default uuid_generate_v4() primary key,
+  server_id uuid references public.servers(id) on delete cascade not null,
+  scout_channel_id uuid references public.channels(id) on delete cascade not null,
+  slack_team_id text not null,
+  slack_channel_id text not null,
+  created_at timestamptz default now() not null,
+  unique(slack_team_id, slack_channel_id),
+  unique(server_id, scout_channel_id)
+);
+
+create table public.slack_message_mappings (
+  id uuid default uuid_generate_v4() primary key,
+  scout_message_id uuid references public.messages(id) on delete cascade not null unique,
+  slack_team_id text not null,
+  slack_channel_id text not null,
+  slack_message_ts text not null,
+  slack_thread_ts text,
+  created_at timestamptz default now() not null,
+  unique(slack_team_id, slack_channel_id, slack_message_ts)
+);
+
+create table public.agent_handoffs (
+  id uuid default uuid_generate_v4() primary key,
+  task_id uuid references public.tasks(id) on delete cascade not null,
+  message_id uuid references public.messages(id) on delete cascade not null,
+  channel_id uuid references public.channels(id) on delete cascade not null,
+  source_agent_id uuid references public.agents(id) on delete set null,
+  target_agent_id uuid references public.agents(id) on delete set null,
+  reason text not null,
+  summary text not null,
+  next_action text not null,
+  created_at timestamptz default now() not null
+);
+
+create index idx_slack_channel_mappings_slack on public.slack_channel_mappings(slack_team_id, slack_channel_id);
+create index idx_slack_message_mappings_message on public.slack_message_mappings(scout_message_id);
+create index idx_agent_handoffs_task on public.agent_handoffs(task_id, created_at desc);
+
+-- -----------------------------------------------------------
 -- Row Level Security (RLS)
 -- -----------------------------------------------------------
 
@@ -137,6 +179,9 @@ alter table public.channels enable row level security;
 alter table public.channel_members enable row level security;
 alter table public.messages enable row level security;
 alter table public.tasks enable row level security;
+alter table public.slack_channel_mappings enable row level security;
+alter table public.slack_message_mappings enable row level security;
+alter table public.agent_handoffs enable row level security;
 
 -- Helper functions used by RLS policies. These run as SECURITY DEFINER to
 -- avoid recursive policy checks on channel_members/agents.
@@ -219,6 +264,25 @@ create policy "Channel members can manage tasks" on public.tasks for all using (
     select 1 from public.channel_members
     where channel_id = tasks.channel_id and member_id = auth.uid()
   )
+);
+
+create policy "Channel members can view Slack channel mappings" on public.slack_channel_mappings for select using (
+  public.user_is_channel_member(scout_channel_id) or public.user_has_agent_in_channel(scout_channel_id)
+);
+
+create policy "Channel members can view Slack message mappings" on public.slack_message_mappings for select using (
+  exists (
+    select 1 from public.messages
+    where messages.id = slack_message_mappings.scout_message_id
+      and (
+        public.user_is_channel_member(messages.channel_id)
+        or public.user_has_agent_in_channel(messages.channel_id)
+      )
+  )
+);
+
+create policy "Channel members can view agent handoffs" on public.agent_handoffs for select using (
+  public.user_is_channel_member(channel_id) or public.user_has_agent_in_channel(channel_id)
 );
 
 -- -----------------------------------------------------------

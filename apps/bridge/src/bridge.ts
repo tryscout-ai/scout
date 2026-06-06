@@ -36,10 +36,28 @@ interface DbAgent {
   status: string;
 }
 
+interface DbTask {
+  id: string;
+  task_number: number;
+  status: "todo" | "in_progress" | "in_review" | "done";
+  assignee_id: string | null;
+  assignee_type: "human" | "agent" | null;
+  channel_id: string;
+  message_id: string;
+  created_at: string;
+}
+
 interface DbChannelMember {
   channel_id: string;
   member_id: string;
   member_type: string;
+}
+
+interface SlackMessageMapping {
+  slack_team_id: string;
+  slack_channel_id: string;
+  slack_message_ts: string;
+  slack_thread_ts: string | null;
 }
 
 export class Bridge {
@@ -131,16 +149,19 @@ export class Bridge {
     // 5. Subscribe to new messages in channels where agents are members
     this.subscribeToMessages();
 
-    // 6. Subscribe to new agents and channel memberships (for agents created via UI)
+    // 6. Subscribe to new tasks created from Scout UI, CLI, or Slack.
+    this.subscribeToTasks();
+
+    // 7. Subscribe to new agents and channel memberships (for agents created via UI)
     this.subscribeToNewAgents();
 
-    // 7. Subscribe to workspace file RPC (web UI requests files via Realtime)
+    // 8. Subscribe to workspace file RPC (web UI requests files via Realtime)
     this.subscribeToWorkspaceRpc();
 
-    // 8. Track presence (auto-offline on disconnect — no SIGINT needed)
+    // 9. Track presence (auto-offline on disconnect — no SIGINT needed)
     this.trackPresence();
 
-    // 9. Start heartbeat (updates machine_keys.last_used_at every 30s for polling-based status)
+    // 10. Start heartbeat (updates machine_keys.last_used_at every 30s for polling-based status)
     this.startHeartbeat();
 
     console.log(
@@ -228,6 +249,92 @@ export class Bridge {
           console.log("  Subscribed to Supabase Realtime.");
         } else if (status === "CHANNEL_ERROR") {
           console.error("  Supabase Realtime subscription error.");
+        }
+      });
+  }
+
+  private async postSlack(channelId: string, text: string, threadTs?: string | null) {
+    const token = process.env.SLACK_BOT_TOKEN;
+    if (!token) return null;
+
+    const response = await fetch("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({
+        channel: channelId,
+        text,
+        thread_ts: threadTs || undefined,
+        unfurl_links: false,
+        unfurl_media: false,
+      }),
+    });
+
+    const body = (await response.json()) as { ok: boolean; error?: string; ts?: string };
+    if (!body.ok) {
+      throw new Error(body.error || "Slack chat.postMessage failed");
+    }
+    return body.ts || null;
+  }
+
+  private async mirrorAgentReplyToSlack(msg: DbMessage) {
+    if (msg.sender_type !== "agent" || !msg.thread_parent_id) return;
+
+    const { data } = await this.supabase
+      .from("slack_message_mappings")
+      .select("slack_team_id, slack_channel_id, slack_message_ts, slack_thread_ts")
+      .eq("scout_message_id", msg.thread_parent_id)
+      .single();
+
+    const slackRef = data as SlackMessageMapping | null;
+    if (!slackRef) return;
+
+    try {
+      const slackTs = await this.postSlack(
+        slackRef.slack_channel_id,
+        msg.content,
+        slackRef.slack_thread_ts || slackRef.slack_message_ts
+      );
+
+      if (slackTs) {
+        await this.supabase.from("slack_message_mappings").upsert({
+          scout_message_id: msg.id,
+          slack_team_id: slackRef.slack_team_id,
+          slack_channel_id: slackRef.slack_channel_id,
+          slack_message_ts: slackTs,
+          slack_thread_ts: slackRef.slack_thread_ts || slackRef.slack_message_ts,
+        });
+      }
+    } catch (err) {
+      console.error(
+        "  [Bridge] Could not mirror Scout reply to Slack:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  private subscribeToTasks() {
+    this.supabase
+      .channel("bridge-tasks")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "tasks",
+        },
+        (payload) => {
+          const task = payload.new as DbTask;
+          this.handleNewTask(task);
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("  Subscribed to Scout tasks.");
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("  Scout task subscription error.");
         }
       });
   }
@@ -355,6 +462,8 @@ export class Bridge {
   }
 
   private async handleNewMessage(msg: DbMessage) {
+    await this.mirrorAgentReplyToSlack(msg);
+
     // Only respond to human messages
     if (msg.sender_type !== "human") return;
 
@@ -432,6 +541,78 @@ export class Bridge {
           err instanceof Error ? err.message : err
         );
       }
+    }
+  }
+
+  private async handleNewTask(task: DbTask) {
+    const agentIdsInChannel = this.channelAgents.get(task.channel_id);
+    if (!agentIdsInChannel || agentIdsInChannel.size === 0) return;
+
+    let targetAgentId: string | null = null;
+
+    if (task.assignee_type === "agent" && task.assignee_id) {
+      if (!this.agentRecords.has(task.assignee_id)) return;
+      targetAgentId = task.assignee_id;
+    } else if (agentIdsInChannel.size === 1) {
+      targetAgentId = Array.from(agentIdsInChannel)[0];
+    }
+
+    if (!targetAgentId) {
+      console.log(
+        `  [Bridge] Task #${task.task_number} is unassigned in a multi-agent channel; waiting for an agent to claim it.`
+      );
+      return;
+    }
+
+    const agent = this.agentRecords.get(targetAgentId);
+    if (!agent) return;
+
+    const { data: message, error } = await this.supabase
+      .from("messages")
+      .select("id, channel_id, sender_id, sender_type, content, thread_parent_id, created_at")
+      .eq("id", task.message_id)
+      .single();
+
+    if (error || !message) {
+      console.error(
+        `  [Bridge] Could not load message for task #${task.task_number}:`,
+        error?.message || "message not found"
+      );
+      return;
+    }
+
+    const senderName = await this.resolveSenderName(
+      message.sender_id,
+      message.sender_type
+    );
+    const channelTarget = this.buildChannelTarget(task.channel_id, senderName);
+    const contextPrefix = await this.getChannelContext(task.channel_id);
+    const prompt =
+      `${contextPrefix}\n` +
+      `\n[target=${channelTarget} sender=@${senderName} type=task task=#${task.task_number}] ` +
+      `Scout task #${task.task_number} was created from this message. ` +
+      `Claim it with \`scout task claim --number ${task.task_number}\`, do the requested work, ` +
+      `reply in the task thread, and update the task status when done.\n\n` +
+      message.content;
+
+    console.log(
+      `  [${agent.display_name}] Received task #${task.task_number}: "${message.content.substring(0, 60)}${message.content.length > 60 ? "..." : ""}"`
+    );
+
+    try {
+      const reply = await this.agentManager.sendToAgent(targetAgentId, prompt);
+      if (typeof reply === "string" && reply.trim()) {
+        await this.sendAgentReply(targetAgentId, message as DbMessage, reply);
+      }
+    } catch (err) {
+      this.agentManager.markError(
+        targetAgentId,
+        err instanceof Error ? err.message : String(err)
+      );
+      console.error(
+        `  [${agent.display_name}] Task #${task.task_number} error:`,
+        err instanceof Error ? err.message : err
+      );
     }
   }
 

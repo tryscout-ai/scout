@@ -4,7 +4,8 @@
   "description": "Scout local bridge — connects your Claude Code agents to Scout",
   "type": "module",
   "bin": {
-    "scout-bridge": "./dist/index.js"
+    "scout-bridge": "./dist/index.js",
+    "scout-handoff-mcp": "./dist/handoff-mcp.js"
   },
   "files": [
     "dist"

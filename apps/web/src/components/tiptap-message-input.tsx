@@ -121,12 +121,17 @@ const TiptapMessageInput = forwardRef<
       if (!editor) return;
       const { from } = editor.state.selection;
       const $from = editor.state.doc.resolve(from);
-      const textBefore = $from.parent.textBetween(0, $from.parentOffset);
-      const searchStr = `@${query}`;
-      const idx = textBefore.lastIndexOf(searchStr);
+      const text = $from.parent.textBetween(0, $from.parent.content.size);
+      const textBefore = text.slice(0, $from.parentOffset);
+      const idx = textBefore.lastIndexOf("@");
       if (idx === -1) return;
+
+      const afterAt = text.slice(idx + 1);
+      const currentMention = afterAt.match(/^[^\s@]*/)?.[0] ?? "";
+      if (!currentMention.toLowerCase().startsWith(query.toLowerCase())) return;
+
       const start = $from.start() + idx;
-      const end = start + searchStr.length;
+      const end = start + 1 + currentMention.length;
       editor
         .chain()
         .deleteRange({ from: start, to: end })

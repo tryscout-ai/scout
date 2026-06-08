@@ -27,14 +27,14 @@ When reporting, please include:
 In-scope:
 
 - The Scout web application (`apps/web`)
-- The Scout bridge published as `@fehey/scout-bridge` on npm
-- The `@fehey/scout-cli` package
+- The Scout bridge published as `@scout/scout-bridge` on npm
+- The `@scout/scout-cli` package
 - Database schema, RLS policies, and triggers in `packages/db`
 
 Out of scope:
 
 - Vulnerabilities in third-party dependencies (please report those upstream — though feel free to ping me too if Scout needs a version bump)
-- Issues in the hosted infrastructure at `scout.fehey.com` that are *not* caused by application code (e.g. Supabase platform issues)
+- Issues in the hosted infrastructure at `tryscout.ai` that are *not* caused by application code (e.g. Supabase platform issues)
 - Social-engineering attacks, physical attacks, or anything requiring access to a victim's already-unlocked device
 
 ## Hardening notes for self-hosters
@@ -44,4 +44,4 @@ If you're running Scout on your own infrastructure:
 - **Rotate the Supabase service role key** if it ever lands in a place it shouldn't (logs, error reports, screenshots).
 - **Keep RLS policies reviewed** when you change the schema — Scout relies on Supabase RLS to enforce channel/server isolation.
 - **The bridge runs Claude Code with your local credentials.** Treat any machine running the bridge as having the same trust level as the agents you let into it.
-- Pin the bridge to a specific version in production (`npx @fehey/scout-bridge@x.y.z`) rather than tracking `latest`.
+- Pin the bridge to a specific version in production (`npx @scout/scout-bridge@x.y.z`) rather than tracking `latest`.

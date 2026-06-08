@@ -50,7 +50,7 @@ export function MachineDetailDialog({
 
   const apiKeyDisplay = keyValue || `${machine.key_prefix}...`;
   const npxCommand = [
-    "npx @fehey/scout-bridge",
+    "npx @scout/scout-bridge",
     serverUrl ? `--server-url ${serverUrl}` : "",
     `--api-key ${apiKeyDisplay}`,
   ].filter(Boolean).join(" ");

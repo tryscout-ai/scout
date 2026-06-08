@@ -471,10 +471,10 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
     const wrapperPath = join(scoutDir, "scout");
     let wrapperBody: string;
 
-    // Try to resolve the compiled CLI from @fehey/scout-cli npm package first
+    // Try to resolve the compiled CLI from @scout/scout-cli npm package first
     try {
       const req = createRequire(import.meta.url);
-      const cliPath = req.resolve("@fehey/scout-cli/dist/index.js");
+      const cliPath = req.resolve("@scout/scout-cli/dist/index.js");
       // Published mode: use node to run compiled JS directly
       wrapperBody = `#!/usr/bin/env bash\nexec node '${cliPath.replace(/'/g, "'\\''")}' "$@"\n`;
       console.log(`  [${session.displayName}] CLI resolved from npm package: ${cliPath}`);

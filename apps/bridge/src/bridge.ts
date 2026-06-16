@@ -239,7 +239,8 @@ export class Bridge {
     const { data: agents, error } = await this.supabase
       .from("agents")
       .select("*")
-      .eq("owner_id", this.config.userId);
+      .eq("owner_id", this.config.userId)
+      .eq("server_id", this.config.serverId);
 
     if (error) {
       console.error("  Failed to load agents:", error.message);
@@ -949,7 +950,7 @@ export class Bridge {
           event: "INSERT",
           schema: "public",
           table: "agents",
-          filter: `owner_id=eq.${this.config.userId}`,
+          filter: `server_id=eq.${this.config.serverId}`,
         },
         async (payload) => {
           const agent = payload.new as DbAgent;

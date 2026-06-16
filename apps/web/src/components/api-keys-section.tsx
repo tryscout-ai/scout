@@ -21,6 +21,7 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [error, setError] = useState("");
   const [serverUrl] = useState(() =>
     typeof window === "undefined" ? "" : window.location.origin
   );
@@ -33,12 +34,18 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
     : "";
 
   async function loadKeys() {
-    const res = await fetch(`/api/bridge/keys?server_id=${serverId}`);
-    if (res.ok) {
-      const data = await res.json();
+    try {
+      const res = await fetch(`/api/bridge/keys?server_id=${serverId}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Could not load bridge keys");
+      }
       setKeys(data.keys);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load bridge keys");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -47,30 +54,41 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
 
   async function handleCreate() {
     setCreating(true);
-    const res = await fetch("/api/bridge/keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        server_id: serverId,
-        name: newKeyName.trim() || "Default",
-      }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
+    try {
+      const res = await fetch("/api/bridge/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          server_id: serverId,
+          name: newKeyName.trim() || "Default",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Could not create bridge key");
+      }
       setRevealedKey(data.apiKey);
       setNewKeyName("");
       setShowForm(false);
       loadKeys();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create bridge key");
+    } finally {
+      setCreating(false);
     }
-    setCreating(false);
   }
 
   async function handleDelete(id: string) {
-    const res = await fetch(`/api/bridge/keys?id=${id}`, { method: "DELETE" });
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/bridge/keys?id=${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Could not delete bridge key");
+      }
       setKeys((prev) => prev.filter((k) => k.id !== id));
       if (revealedKey) setRevealedKey(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete bridge key");
     }
   }
 
@@ -108,6 +126,11 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
       <p className="text-xs text-muted-foreground mb-4">
         Generate an API key to connect your local bridge to this workspace.
       </p>
+      {error && (
+        <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive-foreground">
+          {error}
+        </p>
+      )}
 
       {/* Revealed key (shown once after creation) */}
       {revealedKey && (

@@ -127,6 +127,16 @@ create table public.tasks (
 
 create index idx_tasks_channel on public.tasks(channel_id, task_number);
 
+create table public.task_collaborators (
+  task_id uuid references public.tasks(id) on delete cascade not null,
+  agent_id uuid references public.agents(id) on delete cascade not null,
+  role text default 'collaborator' check (role in ('lead', 'collaborator')),
+  created_at timestamptz default now() not null,
+  primary key (task_id, agent_id)
+);
+
+create index idx_task_collaborators_agent on public.task_collaborators(agent_id, created_at desc);
+
 -- -----------------------------------------------------------
 -- Slack Integration MVP
 -- -----------------------------------------------------------
@@ -139,6 +149,40 @@ create table public.slack_channel_mappings (
   created_at timestamptz default now() not null,
   unique(slack_team_id, slack_channel_id),
   unique(server_id, scout_channel_id)
+);
+
+create table public.slack_workspaces (
+  id uuid default uuid_generate_v4() primary key,
+  server_id uuid references public.servers(id) on delete cascade not null unique,
+  owner_id uuid references public.profiles(id) on delete cascade not null,
+  slack_team_id text not null unique,
+  slack_team_name text,
+  slack_team_icon text,
+  bot_user_id text,
+  bot_access_token_encrypted text,
+  access_token_encrypted text,
+  install_status text default 'connected' check (install_status in ('pending', 'connected', 'error')),
+  last_error text,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
+
+create table public.slack_agent_apps (
+  id uuid default uuid_generate_v4() primary key,
+  workspace_id uuid references public.slack_workspaces(id) on delete cascade not null,
+  agent_id uuid references public.agents(id) on delete cascade not null unique,
+  slack_app_id text unique,
+  slack_bot_user_id text unique,
+  slack_app_name text not null,
+  client_id_encrypted text,
+  client_secret_encrypted text,
+  signing_secret_encrypted text,
+  bot_access_token_encrypted text,
+  install_url text,
+  install_status text default 'pending_manifest' check (install_status in ('pending_manifest', 'pending_install', 'installed', 'error')),
+  last_error text,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
 );
 
 create table public.slack_message_mappings (
@@ -166,6 +210,7 @@ create table public.agent_handoffs (
 );
 
 create index idx_slack_channel_mappings_slack on public.slack_channel_mappings(slack_team_id, slack_channel_id);
+create index idx_slack_agent_apps_workspace on public.slack_agent_apps(workspace_id, install_status);
 create index idx_slack_message_mappings_message on public.slack_message_mappings(scout_message_id);
 create index idx_agent_handoffs_task on public.agent_handoffs(task_id, created_at desc);
 
@@ -179,7 +224,10 @@ alter table public.channels enable row level security;
 alter table public.channel_members enable row level security;
 alter table public.messages enable row level security;
 alter table public.tasks enable row level security;
+alter table public.task_collaborators enable row level security;
 alter table public.slack_channel_mappings enable row level security;
+alter table public.slack_workspaces enable row level security;
+alter table public.slack_agent_apps enable row level security;
 alter table public.slack_message_mappings enable row level security;
 alter table public.agent_handoffs enable row level security;
 
@@ -266,8 +314,54 @@ create policy "Channel members can manage tasks" on public.tasks for all using (
   )
 );
 
+create policy "Channel members can view task collaborators" on public.task_collaborators for select using (
+  exists (
+    select 1
+    from public.tasks
+    where tasks.id = task_collaborators.task_id
+      and (
+        public.user_is_channel_member(tasks.channel_id)
+        or public.user_has_agent_in_channel(tasks.channel_id)
+      )
+  )
+);
+
+create policy "Channel members can manage task collaborators" on public.task_collaborators for all using (
+  exists (
+    select 1
+    from public.tasks
+    where tasks.id = task_collaborators.task_id
+      and (
+        public.user_is_channel_member(tasks.channel_id)
+        or public.user_has_agent_in_channel(tasks.channel_id)
+      )
+  )
+);
+
 create policy "Channel members can view Slack channel mappings" on public.slack_channel_mappings for select using (
   public.user_is_channel_member(scout_channel_id) or public.user_has_agent_in_channel(scout_channel_id)
+);
+
+create policy "Users can view own Slack workspaces" on public.slack_workspaces for select using (
+  auth.uid() = owner_id
+);
+create policy "Users can manage own Slack workspaces" on public.slack_workspaces for all using (
+  auth.uid() = owner_id
+);
+
+create policy "Users can view own Slack agent apps" on public.slack_agent_apps for select using (
+  exists (
+    select 1 from public.slack_workspaces
+    where slack_workspaces.id = slack_agent_apps.workspace_id
+      and slack_workspaces.owner_id = auth.uid()
+  )
+);
+create policy "Users can manage own Slack agent apps" on public.slack_agent_apps for all using (
+  exists (
+    select 1 from public.slack_workspaces
+    where slack_workspaces.id = slack_agent_apps.workspace_id
+      and slack_workspaces.owner_id = auth.uid()
+  )
 );
 
 create policy "Channel members can view Slack message mappings" on public.slack_message_mappings for select using (
@@ -290,5 +384,10 @@ create policy "Channel members can view agent handoffs" on public.agent_handoffs
 -- -----------------------------------------------------------
 -- Enable realtime for messages, agents, and channel_members tables
 alter publication supabase_realtime add table public.messages;
+alter publication supabase_realtime add table public.tasks;
+alter publication supabase_realtime add table public.task_collaborators;
+alter publication supabase_realtime add table public.agent_handoffs;
+alter publication supabase_realtime add table public.slack_workspaces;
+alter publication supabase_realtime add table public.slack_agent_apps;
 alter publication supabase_realtime add table public.agents;
 alter publication supabase_realtime add table public.channel_members;

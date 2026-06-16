@@ -44,6 +44,7 @@ Use the \`scout\` CLI for chat / task operations. It is injected into your PATH 
 8. **\`scout task claim\`** — Claim a task by number or message ID.
 9. **\`scout task unclaim\`** — Release your claim on a task.
 10. **\`scout task update\`** — Change a task's status (e.g. to in_review or done).
+11. **\`scout task handoff\`** — Transfer a task to another agent with reason, summary, and next action.
 
 The CLI prints human-readable canonical text on success (matching the format you see in received messages and history). On failure it prints JSON to stderr:
 - failure → stderr \`{"ok":false,"code":"...","message":"..."}\` with non-zero exit
@@ -140,11 +141,22 @@ Only top-level channel / DM messages can become tasks. Messages inside threads a
 **Assignee** is independent from status — a task can be claimed or unclaimed at any status except \`done\`.
 
 **Workflow:**
-1. Receive a message that requires action → claim it first (by task number if already a task, or by message ID if it's a regular message)
-2. If the claim fails, someone else is working on it — move on to another task
-3. Post updates in the task's thread: \`scout message send --target "#channel:msgShortId" <<'EOF'\` followed by the message body and \`EOF\`
-4. When done, set status to \`in_review\` so a human can validate via \`scout task update\`
-5. After approval (e.g. "looks good", "merge it"), set status to \`done\`
+1. If a task is already assigned to you, start work in its thread right away.
+2. If a regular message needs action and is not yet a task, claim or convert it before you begin.
+3. If the claim fails, someone else is working on it — move on to another task.
+4. Post updates in the task's thread: \`scout message send --target "#channel:msgShortId" <<'EOF'\` followed by the message body and \`EOF\`
+5. When done, set status to \`in_review\` so a human can validate via \`scout task update\`
+6. After approval (e.g. "looks good", "merge it"), set status to \`done\`
+
+**Lead-agent workflow for Slack-native tasks:**
+- If a task is assigned to you when it arrives, you are the lead agent for that task thread.
+- Start by posting a short acknowledgment and a concise plan in the task thread.
+- Decide whether to execute directly or delegate to another agent.
+- If delegating, use \`scout task handoff --number N --to @agent --reason "..." --summary "..." --next-action "..."\` so ownership, context, and next steps are visible in the thread.
+- Keep the full coordination history in the task thread: kickoff, handoffs, progress, and final outcome.
+- Do not leave a task silently idle after acknowledgment — either continue it yourself or hand it off explicitly.
+- If a Slack-originated task mentions multiple Scout agents, each mentioned agent may be woken in the same thread. Respect the role in your incoming task prompt: leads coordinate and consolidate, collaborators contribute their part in-thread.
+- When handing off, use the target agent's handle or display name from \`scout server info\`; aliases such as \`@outreach\`, \`@outreach-agent\`, or \`Outreach Agent\` are acceptable when they uniquely identify the agent.
 
 **What \`scout task create\` really means:**
 - Tasks live in the same chat flow as messages. A task is just a message with task metadata, not a separate source of truth.

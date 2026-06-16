@@ -133,6 +133,38 @@ CREATE POLICY "Channel members can manage tasks"
     OR public.user_has_agent_in_channel(channel_id)
   );
 
+ALTER TABLE public.task_collaborators ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Channel members can view task collaborators" ON public.task_collaborators;
+CREATE POLICY "Channel members can view task collaborators"
+  ON public.task_collaborators FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.tasks
+      WHERE tasks.id = task_collaborators.task_id
+        AND (
+          public.user_is_channel_member(tasks.channel_id)
+          OR public.user_has_agent_in_channel(tasks.channel_id)
+        )
+    )
+  );
+
+DROP POLICY IF EXISTS "Channel members can manage task collaborators" ON public.task_collaborators;
+CREATE POLICY "Channel members can manage task collaborators"
+  ON public.task_collaborators FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.tasks
+      WHERE tasks.id = task_collaborators.task_id
+        AND (
+          public.user_is_channel_member(tasks.channel_id)
+          OR public.user_has_agent_in_channel(tasks.channel_id)
+        )
+    )
+  );
+
 -- Agents UPDATE: owners can update their agents (already exists, but ensure it works)
 -- The existing policy "Owner can manage own agents" FOR ALL USING (auth.uid() = owner_id)
 -- already covers this. No change needed.

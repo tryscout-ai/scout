@@ -1,3 +1,4 @@
+import { createDecipheriv, createHash } from "crypto";
 import { createClient, SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { readdir, readFile, stat, lstat } from "fs/promises";
 import { join, resolve } from "path";
@@ -47,6 +48,26 @@ interface DbTask {
   created_at: string;
 }
 
+interface DbTaskCollaborator {
+  task_id: string;
+  agent_id: string;
+  role: "lead" | "collaborator";
+  created_at: string;
+}
+
+interface DbAgentHandoff {
+  id: string;
+  task_id: string;
+  message_id: string;
+  channel_id: string;
+  source_agent_id: string | null;
+  target_agent_id: string | null;
+  reason: string;
+  summary: string;
+  next_action: string;
+  created_at: string;
+}
+
 interface DbChannelMember {
   channel_id: string;
   member_id: string;
@@ -58,6 +79,34 @@ interface SlackMessageMapping {
   slack_channel_id: string;
   slack_message_ts: string;
   slack_thread_ts: string | null;
+}
+
+interface SlackAgentAppToken {
+  bot_access_token_encrypted: string | null;
+}
+
+function slackEncryptionKey() {
+  const secret =
+    process.env.SCOUT_SLACK_TOKEN_ENCRYPTION_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SCOUT_SUPABASE_SERVICE_ROLE_KEY;
+  if (!secret) return null;
+  return createHash("sha256").update(secret).digest();
+}
+
+function decryptSlackSecret(value: string | null | undefined) {
+  const key = slackEncryptionKey();
+  if (!value || !key) return null;
+
+  const [ivText, tagText, encryptedText] = value.split(".");
+  if (!ivText || !tagText || !encryptedText) return null;
+
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivText, "base64"));
+  decipher.setAuthTag(Buffer.from(tagText, "base64"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(encryptedText, "base64")),
+    decipher.final(),
+  ]).toString("utf8");
 }
 
 export class Bridge {
@@ -78,6 +127,8 @@ export class Bridge {
   private presenceChannel: RealtimeChannel | null = null;
   // Heartbeat timer for machine_keys.last_used_at (polling fallback for online status)
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  // Prevent duplicate wakeups when a task insert and collaborator inserts arrive together.
+  private taskDispatches = new Map<string, Set<string>>();
 
   constructor(config: BridgeConfig) {
     this.config = config;
@@ -152,16 +203,22 @@ export class Bridge {
     // 6. Subscribe to new tasks created from Scout UI, CLI, or Slack.
     this.subscribeToTasks();
 
-    // 7. Subscribe to new agents and channel memberships (for agents created via UI)
+    // 7. Subscribe to task collaborators so mentioned agents wake immediately.
+    this.subscribeToTaskCollaborators();
+
+    // 8. Subscribe to agent handoffs so delegated agents wake immediately.
+    this.subscribeToHandoffs();
+
+    // 9. Subscribe to new agents and channel memberships (for agents created via UI)
     this.subscribeToNewAgents();
 
-    // 8. Subscribe to workspace file RPC (web UI requests files via Realtime)
+    // 10. Subscribe to workspace file RPC (web UI requests files via Realtime)
     this.subscribeToWorkspaceRpc();
 
-    // 9. Track presence (auto-offline on disconnect — no SIGINT needed)
+    // 11. Track presence (auto-offline on disconnect — no SIGINT needed)
     this.trackPresence();
 
-    // 10. Start heartbeat (updates machine_keys.last_used_at every 30s for polling-based status)
+    // 12. Start heartbeat (updates machine_keys.last_used_at every 30s for polling-based status)
     this.startHeartbeat();
 
     console.log(
@@ -253,8 +310,8 @@ export class Bridge {
       });
   }
 
-  private async postSlack(channelId: string, text: string, threadTs?: string | null) {
-    const token = process.env.SLACK_BOT_TOKEN;
+  private async postSlack(channelId: string, text: string, threadTs?: string | null, tokenOverride?: string | null) {
+    const token = tokenOverride || process.env.SLACK_BOT_TOKEN;
     if (!token) return null;
 
     const response = await fetch("https://slack.com/api/chat.postMessage", {
@@ -292,10 +349,14 @@ export class Bridge {
     if (!slackRef) return;
 
     try {
+      const senderName = await this.resolveSenderName(msg.sender_id, msg.sender_type);
+      const slackText = `*${senderName}:*\n${msg.content}`;
+      const token = await this.resolveSlackAgentToken(msg.sender_id);
       const slackTs = await this.postSlack(
         slackRef.slack_channel_id,
-        msg.content,
-        slackRef.slack_thread_ts || slackRef.slack_message_ts
+        slackText,
+        slackRef.slack_thread_ts || slackRef.slack_message_ts,
+        token
       );
 
       if (slackTs) {
@@ -313,6 +374,18 @@ export class Bridge {
         err instanceof Error ? err.message : err
       );
     }
+  }
+
+  private async resolveSlackAgentToken(agentId: string) {
+    const { data } = await this.supabase
+      .from("slack_agent_apps")
+      .select("bot_access_token_encrypted")
+      .eq("agent_id", agentId)
+      .eq("install_status", "installed")
+      .maybeSingle();
+
+    const app = data as SlackAgentAppToken | null;
+    return decryptSlackSecret(app?.bot_access_token_encrypted);
   }
 
   private subscribeToTasks() {
@@ -335,6 +408,88 @@ export class Bridge {
           console.log("  Subscribed to Scout tasks.");
         } else if (status === "CHANNEL_ERROR") {
           console.error("  Scout task subscription error.");
+        }
+      });
+  }
+
+  private subscribeToTaskCollaborators() {
+    this.supabase
+      .channel("bridge-task-collaborators")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "task_collaborators",
+        },
+        async (payload) => {
+          const collaborator = payload.new as DbTaskCollaborator;
+          const { data: task, error } = await this.supabase
+            .from("tasks")
+            .select("id, task_number, status, assignee_id, assignee_type, channel_id, message_id, created_at")
+            .eq("id", collaborator.task_id)
+            .single();
+
+          if (error || !task) {
+            console.error(
+              "  [Bridge] Could not load task collaborator target:",
+              error?.message || "task not found"
+            );
+            return;
+          }
+
+          await this.dispatchTaskToAgent(task as DbTask, collaborator.agent_id, collaborator.role);
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("  Subscribed to Scout task collaborators.");
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("  Scout task collaborator subscription error.");
+        }
+      });
+  }
+
+  private subscribeToHandoffs() {
+    this.supabase
+      .channel("bridge-agent-handoffs")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "agent_handoffs",
+        },
+        async (payload) => {
+          const handoff = payload.new as DbAgentHandoff;
+          if (!handoff.target_agent_id) return;
+
+          const { data: task, error } = await this.supabase
+            .from("tasks")
+            .select("id, task_number, status, assignee_id, assignee_type, channel_id, message_id, created_at")
+            .eq("id", handoff.task_id)
+            .single();
+
+          if (error || !task) {
+            console.error(
+              "  [Bridge] Could not load handoff target task:",
+              error?.message || "task not found"
+            );
+            return;
+          }
+
+          await this.dispatchTaskToAgent(task as DbTask, handoff.target_agent_id, "lead", {
+            reason: handoff.reason,
+            summary: handoff.summary,
+            nextAction: handoff.next_action,
+          }, true);
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("  Subscribed to Scout handoffs.");
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("  Scout handoff subscription error.");
         }
       });
   }
@@ -557,8 +712,19 @@ export class Bridge {
     const agentIdsInChannel = this.channelAgents.get(task.channel_id);
     if (!agentIdsInChannel || agentIdsInChannel.size === 0) return;
 
-    let targetAgentId: string | null = null;
+    const { data: collaborators } = await this.supabase
+      .from("task_collaborators")
+      .select("agent_id, role")
+      .eq("task_id", task.id);
 
+    if (collaborators && collaborators.length > 0) {
+      for (const collaborator of collaborators as Array<{ agent_id: string; role: "lead" | "collaborator" }>) {
+        await this.dispatchTaskToAgent(task, collaborator.agent_id, collaborator.role);
+      }
+      return;
+    }
+
+    let targetAgentId: string | null = null;
     if (task.assignee_type === "agent" && task.assignee_id) {
       if (!this.agentRecords.has(task.assignee_id)) return;
       targetAgentId = task.assignee_id;
@@ -568,10 +734,41 @@ export class Bridge {
 
     if (!targetAgentId) {
       console.log(
-        `  [Bridge] Task #${task.task_number} is unassigned in a multi-agent channel; waiting for an agent to claim it.`
+        `  [Bridge] Task #${task.task_number} has no resolved lead agent in a multi-agent channel; Slack-native coordination cannot start until configuration is fixed.`
       );
       return;
     }
+
+    await this.dispatchTaskToAgent(task, targetAgentId, "lead");
+  }
+
+  private hasDispatchedTask(taskId: string, agentId: string) {
+    return this.taskDispatches.get(taskId)?.has(agentId) || false;
+  }
+
+  private markTaskDispatched(taskId: string, agentId: string) {
+    const dispatched = this.taskDispatches.get(taskId) || new Set<string>();
+    dispatched.add(agentId);
+    this.taskDispatches.set(taskId, dispatched);
+
+    setTimeout(() => {
+      const current = this.taskDispatches.get(taskId);
+      if (!current) return;
+      current.delete(agentId);
+      if (current.size === 0) this.taskDispatches.delete(taskId);
+    }, 10 * 60 * 1000);
+  }
+
+  private async dispatchTaskToAgent(
+    task: DbTask,
+    targetAgentId: string,
+    role: "lead" | "collaborator",
+    handoff?: { reason: string; summary: string; nextAction: string },
+    force = false
+  ) {
+    if (!this.agentRecords.has(targetAgentId)) return;
+    if (!force && this.hasDispatchedTask(task.id, targetAgentId)) return;
+    this.markTaskDispatched(task.id, targetAgentId);
 
     const agent = this.agentRecords.get(targetAgentId);
     if (!agent) return;
@@ -595,23 +792,36 @@ export class Bridge {
       message.sender_type
     );
     const channelTarget = this.buildChannelTarget(task.channel_id, senderName);
+    const threadTarget = `${channelTarget}:${message.id.replace(/-/g, "").substring(0, 8)}`;
     const contextPrefix = await this.getChannelContext(task.channel_id);
+    const roleInstruction =
+      role === "lead"
+        ? `You are the lead agent for this task. Start by acknowledging in-thread, coordinate collaborators if any, and consolidate the final result.`
+        : `You are a collaborator on this task. Reply in-thread with your contribution, coordinate with the lead agent, and avoid taking over final consolidation unless asked.`;
+    const handoffInstruction = handoff
+      ? `\n\nHandoff context:\nReason: ${handoff.reason}\nSummary: ${handoff.summary}\nNext action: ${handoff.nextAction}`
+      : "";
     const prompt =
       `${contextPrefix}\n` +
-      `\n[target=${channelTarget} sender=@${senderName} type=task task=#${task.task_number}] ` +
-      `Scout task #${task.task_number} was created from this message. ` +
-      `Claim it with \`scout task claim --number ${task.task_number}\`, do the requested work, ` +
-      `reply in the task thread, and update the task status when done.\n\n` +
+      `\n[target=${threadTarget} sender=@${senderName} type=task task=#${task.task_number}] ` +
+      `Scout task #${task.task_number} was created from this message. ${roleInstruction} ` +
+      `Keep all progress, handoffs, and the final outcome in this task thread. ` +
+      `If you need another agent, use the Scout task handoff flow instead of informal mentions. ` +
+      `Update the task status when work reaches review or completion.${handoffInstruction}\n\n` +
       message.content;
 
     console.log(
-      `  [${agent.display_name}] Received task #${task.task_number}: "${message.content.substring(0, 60)}${message.content.length > 60 ? "..." : ""}"`
+      `  [${agent.display_name}] Received ${role} task #${task.task_number}: "${message.content.substring(0, 60)}${message.content.length > 60 ? "..." : ""}"`
     );
 
     try {
       const reply = await this.agentManager.sendToAgent(targetAgentId, prompt);
       if (typeof reply === "string" && reply.trim()) {
-        await this.sendAgentReply(targetAgentId, message as DbMessage, reply);
+        await this.sendAgentReply(
+          targetAgentId,
+          { ...(message as DbMessage), thread_parent_id: task.message_id },
+          reply
+        );
       }
     } catch (err) {
       this.agentManager.markError(

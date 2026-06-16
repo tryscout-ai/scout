@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes, createHash } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 
+function bridgeKeyErrorMessage(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  if (
+    message.includes("public.machine_keys") ||
+    message.includes("schema cache") ||
+    message.includes("relation \"public.machine_keys\" does not exist")
+  ) {
+    return "Bridge API keys are not deployed in the connected Supabase project yet. Apply `packages/db/src/schema.sql` to the project.";
+  }
+  return message;
+}
+
 /**
  * GET /api/bridge/keys?server_id=...
  * List the user's machine API keys (metadata only, not the actual key).
@@ -32,7 +44,7 @@ export async function GET(request: NextRequest) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: bridgeKeyErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ keys: data ?? [] });
@@ -98,7 +110,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: bridgeKeyErrorMessage(error) }, { status: 500 });
   }
 
   // Return the full key only this once
@@ -142,7 +154,7 @@ export async function PATCH(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: bridgeKeyErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ key: data });
@@ -177,7 +189,7 @@ export async function DELETE(request: NextRequest) {
     .eq("user_id", user.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: bridgeKeyErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

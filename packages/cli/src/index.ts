@@ -21,6 +21,7 @@
  *   scout task claim --number 3
  *   scout task unclaim --number 3
  *   scout task update --number 3 --status done
+ *   scout task handoff --number 3 --to @agent --reason "..." --summary "..." --next-action "..."
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -31,7 +32,7 @@ import { join } from "path";
 // Bootstrap
 // ---------------------------------------------------------------------------
 
-const AGENT_ID = process.env.SCOUT_AGENT_ID;
+const AGENT_ID_ENV = process.env.SCOUT_AGENT_ID;
 const SUPABASE_URL = process.env.SCOUT_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SCOUT_SUPABASE_KEY;
 const AUTH_TOKEN = process.env.SCOUT_AUTH_TOKEN;
@@ -41,9 +42,11 @@ function fail(code: string, message: string): never {
   process.exit(1);
 }
 
-if (!AGENT_ID) fail("MISSING_AGENT_ID", "SCOUT_AGENT_ID is not set");
+if (!AGENT_ID_ENV) fail("MISSING_AGENT_ID", "SCOUT_AGENT_ID is not set");
 if (!SUPABASE_URL) fail("MISSING_SUPABASE_URL", "SCOUT_SUPABASE_URL is not set");
 if (!SUPABASE_KEY) fail("MISSING_SUPABASE_KEY", "SCOUT_SUPABASE_KEY is not set");
+
+const AGENT_ID = AGENT_ID_ENV;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -292,6 +295,54 @@ async function resolveSenderName(
 
   nameCache.set(senderId, name);
   return name;
+}
+
+async function resolveAgentByRef(agentRef: string): Promise<{
+  id: string;
+  name: string;
+  display_name: string;
+}> {
+  const clean = agentRef.replace(/^@/, "").trim();
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/^@+/, "")
+      .replace(/[^a-z0-9]+/g, "");
+
+  const { data: exact, error } = await supabase
+    .from("agents")
+    .select("id, name, display_name")
+    .or(`id.eq.${clean},name.eq.${clean},display_name.eq.${clean}`)
+    .limit(1)
+    .single();
+
+  if (!error && exact) {
+    return exact;
+  }
+
+  const { data: agents } = await supabase
+    .from("agents")
+    .select("id, name, display_name");
+
+  const normalizedRef = normalize(clean);
+  const matched = (agents || []).find((agent) => {
+    const aliases = [
+      agent.id,
+      agent.name,
+      agent.display_name,
+      agent.name.replace(/-/g, " "),
+      agent.display_name.replace(/\s+agent$/i, ""),
+      agent.display_name.replace(/\s+assistant$/i, ""),
+      agent.display_name.replace(/\s+manager$/i, ""),
+    ];
+    return aliases.some((alias) => normalize(alias) === normalizedRef);
+  });
+
+  if (!matched) {
+    fail("RESOLVE_FAILED", `Agent not found: ${agentRef}`);
+  }
+
+  return matched;
 }
 
 // ---------------------------------------------------------------------------
@@ -848,6 +899,83 @@ async function cmdTaskUpdate(flags: Record<string, string>) {
   console.log(`Task #${taskNumber} updated to ${status}.`);
 }
 
+async function cmdTaskHandoff(flags: Record<string, string>) {
+  const taskNumber = flags.number ? parseInt(flags.number) : null;
+  const targetAgentRef = flags.to;
+  const reason = flags.reason;
+  const summary = flags.summary;
+  const nextAction = flags["next-action"];
+
+  if (!taskNumber) fail("INVALID_ARG", "Missing --number");
+  if (!targetAgentRef) fail("INVALID_ARG", "Missing --to");
+  if (!reason) fail("INVALID_ARG", "Missing --reason");
+  if (!summary) fail("INVALID_ARG", "Missing --summary");
+  if (!nextAction) fail("INVALID_ARG", "Missing --next-action");
+
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("id, task_number, assignee_id, channel_id, message_id")
+    .eq("task_number", taskNumber)
+    .single();
+
+  if (!task) fail("HANDOFF_FAILED", "Task not found");
+  if (task.assignee_id !== AGENT_ID) {
+    fail("HANDOFF_FAILED", "You are not the current assignee of this task");
+  }
+
+  const source = await resolveAgentByRef(AGENT_ID);
+  const target = await resolveAgentByRef(targetAgentRef);
+
+  const { error: updateError } = await supabase
+    .from("tasks")
+    .update({
+      assignee_id: target.id,
+      assignee_type: "agent",
+      status: "in_progress",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", task.id);
+
+  if (updateError) fail("HANDOFF_FAILED", updateError.message);
+
+  const handoffText =
+    `Handoff: task #${task.task_number} moved from @${source.name} to @${target.name}.\n` +
+    `Reason: ${reason}\n` +
+    `Summary: ${summary}\n` +
+    `Next action: ${nextAction}`;
+
+  const { data: handoffMsg, error: messageError } = await supabase
+    .from("messages")
+    .insert({
+      channel_id: task.channel_id,
+      sender_id: AGENT_ID,
+      sender_type: "agent",
+      content: handoffText,
+      thread_parent_id: task.message_id,
+    })
+    .select("id")
+    .single();
+
+  if (messageError) fail("HANDOFF_FAILED", messageError.message);
+
+  const { error: handoffError } = await supabase
+    .from("agent_handoffs")
+    .insert({
+      task_id: task.id,
+      message_id: handoffMsg.id,
+      channel_id: task.channel_id,
+      source_agent_id: source.id,
+      target_agent_id: target.id,
+      reason,
+      summary,
+      next_action: nextAction,
+    });
+
+  if (handoffError) fail("HANDOFF_FAILED", handoffError.message);
+
+  console.log(`Task #${task.task_number} handed off to @${target.name}.`);
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -888,6 +1016,9 @@ async function main() {
     case "task update":
       return cmdTaskUpdate(flags);
 
+    case "task handoff":
+      return cmdTaskHandoff(flags);
+
     default:
       console.log(`Scout CLI v0.1.0
 
@@ -902,6 +1033,7 @@ Usage:
   scout task claim --number N               Claim a task
   scout task unclaim --number N             Release a task
   scout task update --number N --status S   Update task status
+  scout task handoff --number N --to @agent --reason "R" --summary "S" --next-action "N"
 
 Environment:
   SCOUT_AGENT_ID        Agent UUID

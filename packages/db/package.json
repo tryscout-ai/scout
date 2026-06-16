@@ -6,7 +6,8 @@
   "types": "./src/index.ts",
   "scripts": {
     "build": "tsc",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "push": "supabase db push"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0"

@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             response_type: "ephemeral",
-            text: `Created Scout task #${result.taskNumber}${threadTs ? " and posted it to the channel" : ""}${slackPostError ? `. I could not post in this Slack channel: ${slackPostError}` : ""}.`,
+            text: `Created Scout task #${result.taskNumber}${result.assigneeName ? ` and assigned lead agent ${result.assigneeName}` : ""}${threadTs ? " and posted the coordination thread to the channel" : ""}${!result.assigneeName ? ". No Slack lead agent is configured yet, so it will not run automatically" : ""}${slackPostError ? `. I could not post in this Slack channel: ${slackPostError}` : ""}.`,
           }),
         }).catch(() => undefined);
       }

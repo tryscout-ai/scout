@@ -85,6 +85,12 @@ interface SlackAgentAppToken {
   bot_access_token_encrypted: string | null;
 }
 
+interface SlackProgressNote {
+  channelId: string;
+  messageTs: string;
+  token: string | null;
+}
+
 function slackEncryptionKey() {
   const secret =
     process.env.SCOUT_SLACK_TOKEN_ENCRYPTION_KEY ||
@@ -336,6 +342,50 @@ export class Bridge {
     return body.ts || null;
   }
 
+  private async updateSlackMessage(channelId: string, messageTs: string, text: string, tokenOverride?: string | null) {
+    const token = tokenOverride || process.env.SLACK_BOT_TOKEN;
+    if (!token) return;
+
+    const response = await fetch("https://slack.com/api/chat.update", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({
+        channel: channelId,
+        ts: messageTs,
+        text,
+        unfurl_links: false,
+        unfurl_media: false,
+      }),
+    });
+
+    const body = (await response.json()) as { ok: boolean; error?: string };
+    if (!body.ok) {
+      throw new Error(body.error || "Slack chat.update failed");
+    }
+  }
+
+  private async deleteSlackMessage(channelId: string, messageTs: string, tokenOverride?: string | null) {
+    const token = tokenOverride || process.env.SLACK_BOT_TOKEN;
+    if (!token) return;
+
+    const response = await fetch("https://slack.com/api/chat.delete", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({ channel: channelId, ts: messageTs }),
+    });
+
+    const body = (await response.json()) as { ok: boolean; error?: string };
+    if (!body.ok) {
+      throw new Error(body.error || "Slack chat.delete failed");
+    }
+  }
+
   private async mirrorAgentReplyToSlack(msg: DbMessage) {
     if (msg.sender_type !== "agent" || !msg.thread_parent_id) return;
 
@@ -386,6 +436,55 @@ export class Bridge {
 
     const app = data as SlackAgentAppToken | null;
     return decryptSlackSecret(app?.bot_access_token_encrypted);
+  }
+
+  private async postSlackProgressNote(task: DbTask, agentId: string, agentName: string): Promise<SlackProgressNote | null> {
+    const { data } = await this.supabase
+      .from("slack_message_mappings")
+      .select("slack_channel_id, slack_message_ts, slack_thread_ts")
+      .eq("scout_message_id", task.message_id)
+      .maybeSingle();
+
+    const slackRef = data as Pick<SlackMessageMapping, "slack_channel_id" | "slack_message_ts" | "slack_thread_ts"> | null;
+    if (!slackRef) return null;
+
+    const token = await this.resolveSlackAgentToken(agentId);
+    const messageTs = await this.postSlack(
+      slackRef.slack_channel_id,
+      `${agentName} is working on task #${task.task_number}...`,
+      slackRef.slack_thread_ts || slackRef.slack_message_ts,
+      token
+    );
+
+    if (!messageTs) return null;
+    return {
+      channelId: slackRef.slack_channel_id,
+      messageTs,
+      token,
+    };
+  }
+
+  private async clearSlackProgressNote(note: SlackProgressNote | null, error?: string) {
+    if (!note) return;
+
+    try {
+      if (error) {
+        await this.updateSlackMessage(
+          note.channelId,
+          note.messageTs,
+          `Scout could not finish this task automatically: ${error}`,
+          note.token
+        );
+        return;
+      }
+
+      await this.deleteSlackMessage(note.channelId, note.messageTs, note.token);
+    } catch (err) {
+      console.error(
+        "  [Bridge] Could not clear Slack progress note:",
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   private subscribeToTasks() {
@@ -814,6 +913,8 @@ export class Bridge {
       `  [${agent.display_name}] Received ${role} task #${task.task_number}: "${message.content.substring(0, 60)}${message.content.length > 60 ? "..." : ""}"`
     );
 
+    const progressNote = await this.postSlackProgressNote(task, targetAgentId, agent.display_name);
+
     try {
       const reply = await this.agentManager.sendToAgent(targetAgentId, prompt);
       if (typeof reply === "string" && reply.trim()) {
@@ -823,14 +924,17 @@ export class Bridge {
           reply
         );
       }
+      await this.clearSlackProgressNote(progressNote);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await this.clearSlackProgressNote(progressNote, message);
       this.agentManager.markError(
         targetAgentId,
-        err instanceof Error ? err.message : String(err)
+        message
       );
       console.error(
         `  [${agent.display_name}] Task #${task.task_number} error:`,
-        err instanceof Error ? err.message : err
+        message
       );
     }
   }

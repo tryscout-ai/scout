@@ -8,6 +8,7 @@ import {
   LayoutDashboardIcon,
   PlugIcon,
   RefreshCwIcon,
+  Trash2Icon,
   WorkflowIcon,
   UsersIcon,
 } from "lucide-react";
@@ -33,6 +34,7 @@ interface SlackAgent {
   description: string | null;
   model: string;
   status: string;
+  scout_channels?: Array<{ id: string; name: string }>;
 }
 
 interface SlackAgentApp {
@@ -75,6 +77,7 @@ export default function SlackPage() {
   const [channels, setChannels] = useState<SlackChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     display_name: "",
@@ -130,6 +133,7 @@ export default function SlackPage() {
 
   const installedCount = (home?.agentApps || []).filter((app) => app.install_status === "installed").length;
   const mappedCount = home?.channelMappings.length || 0;
+  const slackButtonLabel = home?.workspace ? "Reconnect Slack" : "Connect Slack";
 
   async function createAgent(event: React.FormEvent) {
     event.preventDefault();
@@ -177,6 +181,31 @@ export default function SlackPage() {
       setError(err instanceof Error ? err.message : "Could not onboard channel");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function deleteAgent(agent: SlackAgent) {
+    const confirmed = window.confirm(
+      `Delete ${agent.display_name}? This removes the Scout agent and local Slack mapping records, but does not uninstall the Slack app from your Slack workspace.`
+    );
+    if (!confirmed) return;
+
+    setDeletingAgentId(agent.id);
+    setError("");
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not delete agent");
+      setSelectedChannels((prev) => {
+        const next = { ...prev };
+        delete next[agent.id];
+        return next;
+      });
+      await loadHome();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete agent");
+    } finally {
+      setDeletingAgentId(null);
     }
   }
 
@@ -256,7 +285,7 @@ export default function SlackPage() {
                 type="button"
               >
                 <PlugIcon />
-                Connect Slack
+                {slackButtonLabel}
               </Button>
             </div>
           </header>
@@ -268,44 +297,93 @@ export default function SlackPage() {
           )}
 
           {activeView === "dashboard" ? (
-            <section className="grid gap-4 md:grid-cols-4">
-              <div className="rounded-lg border bg-card p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="text-muted-foreground text-sm">Workspace</span>
-                  {home?.workspace ? <StatusBadge status={home.workspace.install_status} /> : <Badge variant="warning">Not connected</Badge>}
+            <>
+              <section className="grid gap-4 md:grid-cols-4">
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-muted-foreground text-sm">Workspace</span>
+                    {home?.workspace ? <StatusBadge status={home.workspace.install_status} /> : <Badge variant="warning">Not connected</Badge>}
+                  </div>
+                  <div className="font-medium text-foreground">
+                    {home?.workspace?.slack_team_name || "Connect Slack"}
+                  </div>
+                  <div className="mt-1 text-muted-foreground text-xs">
+                    {home?.workspace?.slack_team_id || "OAuth install required"}
+                  </div>
                 </div>
-                <div className="font-medium text-foreground">
-                  {home?.workspace?.slack_team_name || "Connect Slack"}
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="mb-3 flex items-center gap-2 text-muted-foreground text-sm">
+                    <BotIcon className="size-4" />
+                    Agent bots
+                  </div>
+                  <div className="font-semibold text-2xl text-foreground">{installedCount}</div>
+                  <div className="mt-1 text-muted-foreground text-xs">installed of {home?.agents.length || 0}</div>
                 </div>
-                <div className="mt-1 text-muted-foreground text-xs">
-                  {home?.workspace?.slack_team_id || "OAuth install required"}
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="mb-3 flex items-center gap-2 text-muted-foreground text-sm">
+                    <HashIcon className="size-4" />
+                    Channels
+                  </div>
+                  <div className="font-semibold text-2xl text-foreground">{mappedCount}</div>
+                  <div className="mt-1 text-muted-foreground text-xs">mapped into Scout</div>
                 </div>
-              </div>
-              <div className="rounded-lg border bg-card p-4">
-                <div className="mb-3 flex items-center gap-2 text-muted-foreground text-sm">
-                  <BotIcon className="size-4" />
-                  Agent bots
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="mb-3 flex items-center gap-2 text-muted-foreground text-sm">
+                    <UsersIcon className="size-4" />
+                    Tasks
+                  </div>
+                  <div className="font-semibold text-2xl text-foreground">{home?.taskCount || 0}</div>
+                  <div className="mt-1 text-muted-foreground text-xs">created from Slack</div>
                 </div>
-                <div className="font-semibold text-2xl text-foreground">{installedCount}</div>
-                <div className="mt-1 text-muted-foreground text-xs">installed of {home?.agents.length || 0}</div>
-              </div>
-              <div className="rounded-lg border bg-card p-4">
-                <div className="mb-3 flex items-center gap-2 text-muted-foreground text-sm">
-                  <HashIcon className="size-4" />
-                  Channels
+              </section>
+
+              <section className="rounded-lg border bg-card">
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <div>
+                    <h2 className="font-medium text-foreground">Agents</h2>
+                    <p className="text-muted-foreground text-sm">Installed bots and their Slack channel mappings.</p>
+                  </div>
+                  <Button onClick={() => setActiveView("agents")} size="sm" variant="outline">
+                    <BotIcon />
+                    Manage agents
+                  </Button>
                 </div>
-                <div className="font-semibold text-2xl text-foreground">{mappedCount}</div>
-                <div className="mt-1 text-muted-foreground text-xs">mapped into Scout</div>
-              </div>
-              <div className="rounded-lg border bg-card p-4">
-                <div className="mb-3 flex items-center gap-2 text-muted-foreground text-sm">
-                  <UsersIcon className="size-4" />
-                  Tasks
+                <div className="divide-y">
+                  {(home?.agents || []).map((agent) => {
+                    const app = appsByAgent.get(agent.id);
+                    const channelNames = agent.scout_channels?.map((channel) => channel.name) || [];
+                    return (
+                      <div className="grid gap-3 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr]" key={agent.id}>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h3 className="truncate font-medium text-foreground">{agent.display_name}</h3>
+                            {app ? <StatusBadge status={app.install_status} /> : <Badge variant="warning">No Slack app</Badge>}
+                          </div>
+                          <p className="mt-1 truncate text-muted-foreground text-sm">{agent.description || agent.name}</p>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-muted-foreground text-xs">Onboarded channels</div>
+                          <div className="mt-1 truncate text-sm">
+                            {channelNames.length ? channelNames.map((name) => `#${name}`).join(", ") : "No channels onboarded"}
+                          </div>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-muted-foreground text-xs">Agent ID</div>
+                          <code className="mt-1 block truncate rounded bg-muted px-1.5 py-1 font-mono text-[11px] text-muted-foreground">
+                            {agent.id}
+                          </code>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {home?.agents.length === 0 && (
+                    <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+                      No Slack agents yet.
+                    </div>
+                  )}
                 </div>
-                <div className="font-semibold text-2xl text-foreground">{home?.taskCount || 0}</div>
-                <div className="mt-1 text-muted-foreground text-xs">created from Slack</div>
-              </div>
-            </section>
+              </section>
+            </>
           ) : (
             <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
               <form className="flex flex-col gap-4 rounded-lg border bg-card p-4" onSubmit={createAgent}>
@@ -358,19 +436,43 @@ export default function SlackPage() {
                             {app ? <StatusBadge status={app.install_status} /> : <Badge variant="warning">No Slack app</Badge>}
                           </div>
                           <p className="mt-1 text-muted-foreground text-sm">{agent.description || agent.name}</p>
-                        </div>
-                        {app?.install_url && app.install_status !== "installed" && (
-                          <Button render={<a href={app.install_url} />} size="sm">
-                            <ExternalLinkIcon />
-                            Install bot
-                          </Button>
-                        )}
-                        {app?.install_status === "installed" && (
-                          <div className="flex items-center gap-1 text-success-foreground text-sm">
-                            <CheckCircle2Icon className="size-4" />
-                            {app.slack_bot_user_id}
+                          <div className="mt-2 grid gap-1 text-muted-foreground text-xs">
+                            <div>
+                              ID: <code className="font-mono">{agent.id}</code>
+                            </div>
+                            <div>
+                              Channels:{" "}
+                              {agent.scout_channels?.length
+                                ? agent.scout_channels.map((channel) => `#${channel.name}`).join(", ")
+                                : "No channels onboarded"}
+                            </div>
                           </div>
-                        )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {app?.install_url && app.install_status !== "installed" && (
+                            <Button render={<a href={app.install_url} />} size="sm">
+                              <ExternalLinkIcon />
+                              Install bot
+                            </Button>
+                          )}
+                          {app?.install_status === "installed" && (
+                            <div className="flex items-center gap-1 text-success-foreground text-sm">
+                              <CheckCircle2Icon className="size-4" />
+                              {app.slack_bot_user_id}
+                            </div>
+                          )}
+                          <Button
+                            disabled={submitting || deletingAgentId === agent.id}
+                            loading={deletingAgentId === agent.id}
+                            onClick={() => deleteAgent(agent)}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            <Trash2Icon />
+                            Delete
+                          </Button>
+                        </div>
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-2">

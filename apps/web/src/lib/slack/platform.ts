@@ -46,6 +46,11 @@ function slugify(value: string) {
     .replace(/^-|-$/g, "");
 }
 
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] || null;
+  return value || null;
+}
+
 export async function ensureSlackServer(userId: string) {
   const admin = createAdminClient();
   const slug = `slack-agents-${userId.substring(0, 8)}`;
@@ -135,8 +140,8 @@ export async function getSlackHome(userId: string) {
     : { data: [] };
 
   const channelNamesById = new Map<string, string>();
-  for (const mapping of (channelMappings || []) as Array<{ scout_channel_id: string; channels?: { name: string } | null }>) {
-    const name = mapping.channels?.name;
+  for (const mapping of (channelMappings || []) as Array<{ scout_channel_id: string; channels?: { name: string } | { name: string }[] | null }>) {
+    const name = firstRelation(mapping.channels)?.name;
     if (name) channelNamesById.set(mapping.scout_channel_id, name);
   }
 
@@ -144,9 +149,9 @@ export async function getSlackHome(userId: string) {
   for (const membership of (agentChannelMemberships || []) as Array<{
     member_id: string;
     channel_id: string;
-    channels?: { id: string; name: string } | null;
+    channels?: { id: string; name: string } | Array<{ id: string; name: string }> | null;
   }>) {
-    const channelName = channelNamesById.get(membership.channel_id) || membership.channels?.name;
+    const channelName = channelNamesById.get(membership.channel_id) || firstRelation(membership.channels)?.name;
     if (!channelName) continue;
     const existing = channelsByAgent.get(membership.member_id) || [];
     if (!existing.some((channel) => channel.id === membership.channel_id)) {

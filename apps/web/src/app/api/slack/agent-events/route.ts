@@ -33,6 +33,11 @@ function stripBotMentions(text: string) {
   return text.replace(/<@[A-Z0-9]+>/g, "").trim();
 }
 
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] || null;
+  return value || null;
+}
+
 async function signingSecretForApp(apiAppId: string | undefined) {
   if (!apiAppId) return null;
   const admin = createAdminClient();
@@ -59,7 +64,13 @@ async function mentionedAgentsForText(text: string) {
   const ordered: Array<{ id: string; name: string; displayName: string }> = [];
   for (const botId of botIds) {
     const app = (apps || []).find((item) => item.slack_bot_user_id === botId);
-    const agent = app?.agents as { id: string; name: string; display_name: string } | null | undefined;
+    const agent = firstRelation(
+      app?.agents as
+        | { id: string; name: string; display_name: string }
+        | Array<{ id: string; name: string; display_name: string }>
+        | null
+        | undefined
+    );
     if (agent && !ordered.some((existing) => existing.id === agent.id)) {
       ordered.push({
         id: agent.id,
@@ -105,6 +116,12 @@ export async function POST(request: NextRequest) {
 
   const mentionedAgents = await mentionedAgentsForText(event.text);
   if (mentionedAgents.length === 0) {
+    console.warn("[Slack] Agent event did not resolve mentioned bot", {
+      apiAppId: parsed.api_app_id,
+      teamId: parsed.team_id,
+      eventType: event.type,
+      text: event.text,
+    });
     return NextResponse.json({ ok: true });
   }
 

@@ -24,6 +24,12 @@ interface SlackAgentMention {
   displayName: string;
 }
 
+interface SlackChannelResolution {
+  scoutChannelId: string | null;
+  serverId: string | null;
+  humanId: string | null;
+}
+
 export interface SlackTaskResult {
   taskId: string;
   taskNumber: number;
@@ -128,13 +134,76 @@ export async function postSlackMessage(channel: string, text: string, threadTs?:
   return body.ts || null;
 }
 
-async function resolveMappedChannel(admin: SupabaseAdmin, teamId: string, slackChannelId: string) {
+function slackChannelNameFromId(slackChannelId: string) {
+  return `slack-${slackChannelId.toLowerCase()}`;
+}
+
+async function resolveMappedChannel(
+  admin: SupabaseAdmin,
+  teamId: string,
+  slackChannelId: string
+): Promise<SlackChannelResolution> {
+  const { data: workspace } = await admin
+    .from("slack_workspaces")
+    .select("server_id, owner_id")
+    .eq("slack_team_id", teamId)
+    .maybeSingle();
+
   const { data } = await admin
     .from("slack_channel_mappings")
-    .select("scout_channel_id")
+    .select("server_id, scout_channel_id, channels(name)")
     .eq("slack_team_id", teamId)
     .eq("slack_channel_id", slackChannelId)
-    .single();
+    .maybeSingle();
+
+  if (workspace && data?.server_id !== workspace.server_id) {
+    const channelsRelation = data?.channels as { name: string } | Array<{ name: string }> | null | undefined;
+    const existingChannelName = Array.isArray(channelsRelation)
+      ? channelsRelation[0]?.name
+      : channelsRelation?.name;
+    const channelName = existingChannelName || slackChannelNameFromId(slackChannelId);
+
+    const { data: existingChannel } = await admin
+      .from("channels")
+      .select("id")
+      .eq("server_id", workspace.server_id)
+      .eq("name", channelName)
+      .maybeSingle();
+
+    const scoutChannel = existingChannel || (await admin
+      .from("channels")
+      .insert({
+        name: channelName,
+        description: `Slack channel ${slackChannelId}`,
+        type: "public",
+        server_id: workspace.server_id,
+        created_by: workspace.owner_id,
+      })
+      .select("id")
+      .single()).data;
+
+    if (scoutChannel) {
+      await admin.from("slack_channel_mappings").upsert({
+        server_id: workspace.server_id,
+        scout_channel_id: scoutChannel.id,
+        slack_team_id: teamId,
+        slack_channel_id: slackChannelId,
+      }, { onConflict: "slack_team_id,slack_channel_id" });
+
+      console.log("[Slack] Repaired channel mapping", {
+        slackTeamId: teamId,
+        slackChannelId,
+        scoutChannelId: scoutChannel.id,
+        serverId: workspace.server_id,
+      });
+
+      return {
+        scoutChannelId: scoutChannel.id,
+        serverId: workspace.server_id,
+        humanId: workspace.owner_id,
+      };
+    }
+  }
 
   const mappedChannelId =
     data?.scout_channel_id || process.env.SCOUT_SLACK_DEFAULT_CHANNEL_ID || null;
@@ -147,7 +216,11 @@ async function resolveMappedChannel(admin: SupabaseAdmin, teamId: string, slackC
     resolvedScoutChannelId: mappedChannelId,
   });
 
-  return mappedChannelId;
+  return {
+    scoutChannelId: mappedChannelId,
+    serverId: (data?.server_id as string | undefined) || (workspace?.server_id as string | undefined) || null,
+    humanId: (workspace?.owner_id as string | undefined) || defaultHumanId(),
+  };
 }
 
 function defaultHumanId() {
@@ -274,6 +347,49 @@ async function resolveMentionedSlackBotAgents(admin: SupabaseAdmin, scoutChannel
   return ordered;
 }
 
+async function filterMentionedAgentsForServer(
+  admin: SupabaseAdmin,
+  serverId: string | null,
+  mentionedAgents: SlackAgentMention[]
+) {
+  if (!serverId || mentionedAgents.length === 0) return mentionedAgents;
+
+  const { data: agents } = await admin
+    .from("agents")
+    .select("id")
+    .eq("server_id", serverId)
+    .in("id", mentionedAgents.map((agent) => agent.id));
+
+  const validAgentIds = new Set((agents || []).map((agent) => agent.id as string));
+  return mentionedAgents.filter((agent) => validAgentIds.has(agent.id));
+}
+
+async function ensureSlackTaskChannelMembers(
+  admin: SupabaseAdmin,
+  resolution: SlackChannelResolution,
+  mentionedAgents: SlackAgentMention[]
+) {
+  if (!resolution.scoutChannelId) return;
+
+  const rows: Array<{ channel_id: string; member_id: string; member_type: "human" | "agent" }> = [
+    resolution.humanId
+      ? {
+          channel_id: resolution.scoutChannelId,
+          member_id: resolution.humanId,
+          member_type: "human" as const,
+        }
+      : null,
+    ...mentionedAgents.map((agent) => ({
+      channel_id: resolution.scoutChannelId,
+      member_id: agent.id,
+      member_type: "agent" as const,
+    })),
+  ].filter((row): row is { channel_id: string; member_id: string; member_type: "human" | "agent" } => Boolean(row));
+
+  if (rows.length === 0) return;
+  await admin.from("channel_members").upsert(rows);
+}
+
 async function resolveSlackAssignee(
   admin: SupabaseAdmin,
   scoutChannelId: string,
@@ -372,8 +488,9 @@ export async function createTaskFromSlackMessage(params: {
   mentionedAgents?: SlackAgentMention[];
 }): Promise<SlackTaskResult> {
   const admin = createAdminClient();
-  const scoutChannelId = await resolveMappedChannel(admin, params.teamId, params.channelId);
-  const humanId = defaultHumanId();
+  const channelResolution = await resolveMappedChannel(admin, params.teamId, params.channelId);
+  const scoutChannelId = channelResolution.scoutChannelId;
+  const humanId = channelResolution.humanId || defaultHumanId();
 
   if (!scoutChannelId) {
     throw new Error("No Scout channel mapping found for this Slack channel");
@@ -381,7 +498,14 @@ export async function createTaskFromSlackMessage(params: {
   if (!humanId) {
     throw new Error("Missing SCOUT_SLACK_DEFAULT_HUMAN_ID for Slack-originated Scout messages");
   }
-  const botMentionedAgents = params.mentionedAgents || await resolveMentionedSlackBotAgents(admin, scoutChannelId, params.text);
+  const rawBotMentionedAgents = params.mentionedAgents || await resolveMentionedSlackBotAgents(admin, scoutChannelId, params.text);
+  const botMentionedAgents = await filterMentionedAgentsForServer(
+    admin,
+    channelResolution.serverId,
+    rawBotMentionedAgents
+  );
+  await ensureSlackTaskChannelMembers(admin, channelResolution, botMentionedAgents);
+
   const mentionedAgents =
     botMentionedAgents.length > 0
       ? botMentionedAgents

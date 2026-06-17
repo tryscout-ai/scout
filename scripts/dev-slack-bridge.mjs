@@ -36,16 +36,41 @@ function requireEnv(env, key) {
   return value;
 }
 
-async function main() {
-  const env = loadEnv();
-  const supabaseUrl = requireEnv(env, "NEXT_PUBLIC_SUPABASE_URL");
-  const serviceRoleKey = requireEnv(env, "SUPABASE_SERVICE_ROLE_KEY");
+async function resolveSlackServer(admin, env) {
+  const explicitServerId = process.env.SCOUT_SLACK_SERVER_ID || env.SCOUT_SLACK_SERVER_ID;
+  if (explicitServerId) {
+    const { data: server, error } = await admin
+      .from("servers")
+      .select("id, name, slug")
+      .eq("id", explicitServerId)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!server) throw new Error(`Could not find SCOUT_SLACK_SERVER_ID=${explicitServerId}`);
+    return server;
+  }
+
+  const { data: workspace, error: workspaceError } = await admin
+    .from("slack_workspaces")
+    .select("server_id, slack_team_name, updated_at")
+    .eq("install_status", "connected")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (workspaceError) throw new Error(workspaceError.message);
+  if (workspace?.server_id) {
+    const { data: server, error } = await admin
+      .from("servers")
+      .select("id, name, slug")
+      .eq("id", workspace.server_id)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (server) return server;
+  }
+
   const defaultHumanId = requireEnv(env, "SCOUT_SLACK_DEFAULT_HUMAN_ID");
-
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
   const slug = `slack-agents-${defaultHumanId.substring(0, 8)}`;
   const { data: server, error: serverError } = await admin
     .from("servers")
@@ -60,6 +85,20 @@ async function main() {
       `Could not find Slack server ${slug}. Connect Slack from /slack first.`
     );
   }
+
+  return server;
+}
+
+async function main() {
+  const env = loadEnv();
+  const supabaseUrl = requireEnv(env, "NEXT_PUBLIC_SUPABASE_URL");
+  const serviceRoleKey = requireEnv(env, "SUPABASE_SERVICE_ROLE_KEY");
+
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const server = await resolveSlackServer(admin, env);
 
   const { data: keyRecord, error: keyError } = await admin
     .from("machine_keys")

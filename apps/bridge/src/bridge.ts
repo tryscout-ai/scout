@@ -215,16 +215,19 @@ export class Bridge {
     // 8. Subscribe to agent handoffs so delegated agents wake immediately.
     this.subscribeToHandoffs();
 
-    // 9. Subscribe to new agents and channel memberships (for agents created via UI)
+    // 9. Recover recent tasks that were created while the bridge was offline or on the wrong server.
+    await this.processRecentOpenTasks();
+
+    // 10. Subscribe to new agents and channel memberships (for agents created via UI)
     this.subscribeToNewAgents();
 
-    // 10. Subscribe to workspace file RPC (web UI requests files via Realtime)
+    // 11. Subscribe to workspace file RPC (web UI requests files via Realtime)
     this.subscribeToWorkspaceRpc();
 
-    // 11. Track presence (auto-offline on disconnect — no SIGINT needed)
+    // 12. Track presence (auto-offline on disconnect — no SIGINT needed)
     this.trackPresence();
 
-    // 12. Start heartbeat (updates machine_keys.last_used_at every 30s for polling-based status)
+    // 13. Start heartbeat (updates machine_keys.last_used_at every 30s for polling-based status)
     this.startHeartbeat();
 
     console.log(
@@ -389,6 +392,14 @@ export class Bridge {
 
   private async mirrorAgentReplyToSlack(msg: DbMessage) {
     if (msg.sender_type !== "agent" || !msg.thread_parent_id) return;
+
+    const { data: existingReplyMapping } = await this.supabase
+      .from("slack_message_mappings")
+      .select("scout_message_id")
+      .eq("scout_message_id", msg.id)
+      .maybeSingle();
+
+    if (existingReplyMapping) return;
 
     const { data } = await this.supabase
       .from("slack_message_mappings")
@@ -719,10 +730,17 @@ export class Bridge {
       payload.thread_parent_id = msg.thread_parent_id;
     }
 
-    const { error } = await this.supabase.from("messages").insert(payload);
-    if (error) {
-      throw new Error(error.message);
+    const { data: inserted, error } = await this.supabase
+      .from("messages")
+      .insert(payload)
+      .select("id, channel_id, sender_id, sender_type, content, thread_parent_id, created_at")
+      .single();
+
+    if (error || !inserted) {
+      throw new Error(error?.message || "Could not insert agent reply");
     }
+
+    await this.mirrorAgentReplyToSlack(inserted as DbMessage);
   }
 
   private async handleNewMessage(msg: DbMessage) {
@@ -840,6 +858,30 @@ export class Bridge {
     }
 
     await this.dispatchTaskToAgent(task, targetAgentId, "lead");
+  }
+
+  private async processRecentOpenTasks() {
+    const channelIds = Array.from(this.channelAgents.keys());
+    if (channelIds.length === 0) return;
+
+    const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const { data: tasks, error } = await this.supabase
+      .from("tasks")
+      .select("id, task_number, status, assignee_id, assignee_type, channel_id, message_id, created_at")
+      .in("channel_id", channelIds)
+      .in("status", ["todo", "in_progress"])
+      .gte("created_at", since)
+      .order("created_at", { ascending: true })
+      .limit(25);
+
+    if (error) {
+      console.error("  [Bridge] Could not recover recent open tasks:", error.message);
+      return;
+    }
+
+    for (const task of (tasks || []) as DbTask[]) {
+      await this.handleNewTask(task);
+    }
   }
 
   private hasDispatchedTask(taskId: string, agentId: string) {

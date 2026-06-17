@@ -4,8 +4,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, encryptSecret } from "@/lib/slack/crypto";
 import { createSlackOAuthState } from "@/lib/slack/oauth-state";
 
-type Admin = ReturnType<typeof createAdminClient>;
-
 export interface SlackAppRecord {
   id: string;
   workspace_id: string;

@@ -41,10 +41,12 @@ export async function POST(request: NextRequest) {
       let slackPostError: string | null = null;
 
       try {
-        threadTs = await postTaskCreatedToSlack(
-          { teamId, channelId, messageTs: "", threadTs: null },
-          result
-        );
+        if (result.created) {
+          threadTs = await postTaskCreatedToSlack(
+            { teamId, channelId, messageTs: "", threadTs: null },
+            result
+          );
+        }
       } catch (err) {
         slackPostError = err instanceof Error ? err.message : String(err);
         console.warn("[Slack] Could not post task confirmation:", slackPostError);

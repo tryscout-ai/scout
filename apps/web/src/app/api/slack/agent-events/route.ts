@@ -136,15 +136,17 @@ export async function POST(request: NextRequest) {
       mentionedAgents,
     });
 
-    await postTaskCreatedToSlack(
-      {
-        teamId: parsed.team_id,
-        channelId: event.channel,
-        messageTs: event.ts,
-        threadTs: event.thread_ts || event.ts,
-      },
-      result
-    );
+    if (result.created) {
+      await postTaskCreatedToSlack(
+        {
+          teamId: parsed.team_id,
+          channelId: event.channel,
+          messageTs: event.ts,
+          threadTs: event.thread_ts || event.ts,
+        },
+        result
+      );
+    }
   } catch (err) {
     console.error("[Slack] Agent event handling failed:", err);
   }

@@ -30,9 +30,56 @@ export interface SlackTaskResult {
   messageId: string;
   scoutChannelId: string;
   slackThreadTs: string | null;
+  created: boolean;
   assigneeName: string | null;
   assigneeHandle: string | null;
   collaborators: Array<{ id: string; name: string; displayName: string; role: "lead" | "collaborator" }>;
+}
+
+function isUniqueViolation(error: { code?: string; message?: string } | null) {
+  return error?.code === "23505" || error?.message?.includes("duplicate key value");
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function findTaskForSlackMessage(
+  admin: SupabaseAdmin,
+  params: Pick<SlackMessageRef, "teamId" | "channelId" | "messageTs">,
+  attempts = 1
+) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const { data: existingMapping } = await admin
+      .from("slack_message_mappings")
+      .select("scout_message_id, slack_thread_ts")
+      .eq("slack_team_id", params.teamId)
+      .eq("slack_channel_id", params.channelId)
+      .eq("slack_message_ts", params.messageTs)
+      .maybeSingle();
+
+    if (existingMapping?.scout_message_id) {
+      const { data: existingTask } = await admin
+        .from("tasks")
+        .select("id, task_number, message_id, channel_id")
+        .eq("message_id", existingMapping.scout_message_id)
+        .maybeSingle();
+
+      if (existingTask) {
+        return {
+          taskId: existingTask.id as string,
+          taskNumber: existingTask.task_number as number,
+          messageId: existingTask.message_id as string,
+          scoutChannelId: existingTask.channel_id as string,
+          slackThreadTs: (existingMapping.slack_thread_ts as string | null) || params.messageTs,
+        };
+      }
+    }
+
+    if (attempt < attempts - 1) await sleep(250);
+  }
+
+  return null;
 }
 
 function requireEnv(name: string): string {
@@ -352,33 +399,20 @@ export async function createTaskFromSlackMessage(params: {
   }));
 
   if (params.messageTs) {
-    const { data: existingMapping } = await admin
-      .from("slack_message_mappings")
-      .select("scout_message_id")
-      .eq("slack_team_id", params.teamId)
-      .eq("slack_channel_id", params.channelId)
-      .eq("slack_message_ts", params.messageTs)
-      .single();
+    const existingTask = await findTaskForSlackMessage(admin, {
+      teamId: params.teamId,
+      channelId: params.channelId,
+      messageTs: params.messageTs,
+    });
 
-    if (existingMapping?.scout_message_id) {
-      const { data: existingTask } = await admin
-        .from("tasks")
-        .select("id, task_number, message_id, channel_id")
-        .eq("message_id", existingMapping.scout_message_id)
-        .single();
-
-      if (existingTask) {
-        return {
-          taskId: existingTask.id,
-          taskNumber: existingTask.task_number,
-          messageId: existingTask.message_id,
-          scoutChannelId: existingTask.channel_id,
-          slackThreadTs: params.threadTs || params.messageTs,
-          assigneeName,
-          assigneeHandle,
-          collaborators,
-        };
-      }
+    if (existingTask) {
+      return {
+        ...existingTask,
+        created: false,
+        assigneeName,
+        assigneeHandle,
+        collaborators,
+      };
     }
   }
 
@@ -399,6 +433,47 @@ export async function createTaskFromSlackMessage(params: {
     .single();
 
   if (messageError) throw new Error(messageError.message);
+
+  const slackThreadTs = params.threadTs || params.messageTs || null;
+  if (params.messageTs) {
+    const { error: mappingError } = await admin.from("slack_message_mappings").insert({
+      scout_message_id: message.id,
+      slack_team_id: params.teamId,
+      slack_channel_id: params.channelId,
+      slack_message_ts: params.messageTs,
+      slack_thread_ts: slackThreadTs,
+    });
+
+    if (mappingError) {
+      await admin.from("messages").delete().eq("id", message.id);
+
+      if (!isUniqueViolation(mappingError)) {
+        throw new Error(mappingError.message);
+      }
+
+      const existingTask = await findTaskForSlackMessage(
+        admin,
+        {
+          teamId: params.teamId,
+          channelId: params.channelId,
+          messageTs: params.messageTs,
+        },
+        12
+      );
+
+      if (!existingTask) {
+        throw new Error("Slack message is already being processed");
+      }
+
+      return {
+        ...existingTask,
+        created: false,
+        assigneeName,
+        assigneeHandle,
+        collaborators,
+      };
+    }
+  }
 
   const { data: task, error: taskError } = await admin
     .from("tasks")
@@ -433,23 +508,13 @@ export async function createTaskFromSlackMessage(params: {
     if (collaboratorError) throw new Error(collaboratorError.message);
   }
 
-  const slackThreadTs = params.threadTs || params.messageTs || null;
-  if (params.messageTs) {
-    await admin.from("slack_message_mappings").upsert({
-      scout_message_id: message.id,
-      slack_team_id: params.teamId,
-      slack_channel_id: params.channelId,
-      slack_message_ts: params.messageTs,
-      slack_thread_ts: slackThreadTs,
-    });
-  }
-
   return {
     taskId: task.id,
     taskNumber: task.task_number,
     messageId: message.id,
     scoutChannelId,
     slackThreadTs,
+    created: true,
     assigneeName,
     assigneeHandle,
     collaborators,

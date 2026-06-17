@@ -81,15 +81,17 @@ export async function POST(request: NextRequest) {
         threadTs: payload.message.thread_ts || payload.message.ts,
       });
 
-      await postTaskCreatedToSlack(
-        {
-          teamId: payload.team.id,
-          channelId: payload.channel.id,
-          messageTs: payload.message.ts,
-          threadTs: payload.message.thread_ts || payload.message.ts,
-        },
-        result
-      );
+      if (result.created) {
+        await postTaskCreatedToSlack(
+          {
+            teamId: payload.team.id,
+            channelId: payload.channel.id,
+            messageTs: payload.message.ts,
+            threadTs: payload.message.thread_ts || payload.message.ts,
+          },
+          result
+        );
+      }
     } catch (err) {
       console.error("[Slack] Message action failed:", err);
     }
@@ -118,15 +120,17 @@ export async function POST(request: NextRequest) {
       threadTs: event.thread_ts || event.ts,
     });
 
-    await postTaskCreatedToSlack(
-      {
-        teamId: body.team_id,
-        channelId: event.channel,
-        messageTs: event.ts,
-        threadTs: event.thread_ts || event.ts,
-      },
-      result
-    );
+    if (result.created) {
+      await postTaskCreatedToSlack(
+        {
+          teamId: body.team_id,
+          channelId: event.channel,
+          messageTs: event.ts,
+          threadTs: event.thread_ts || event.ts,
+        },
+        result
+      );
+    }
   } catch (err) {
     console.error("[Slack] Event handling failed:", err);
   }

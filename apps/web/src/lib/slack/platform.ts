@@ -32,6 +32,44 @@ function appUrl(path: string) {
   return new URL(path, normalized).toString();
 }
 
+function defaultLocalReturnTo() {
+  return process.env.SCOUT_SLACK_RETURN_TO_URL || "http://localhost:3000/slack";
+}
+
+function normalizeReturnTo(returnTo?: string | null) {
+  if (!returnTo) return defaultLocalReturnTo();
+
+  try {
+    const url = new URL(returnTo);
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+      url.protocol = "http:";
+    }
+    return url.toString();
+  } catch {
+    return defaultLocalReturnTo();
+  }
+}
+
+function withFreshAgentInstallUrl<T extends { id: string; install_url: string | null; install_status: string }>(
+  app: T,
+  returnTo?: string | null
+) {
+  if (!app.install_url || app.install_status === "installed") return app;
+
+  const url = new URL(app.install_url);
+  url.searchParams.set("redirect_uri", appUrl("/api/slack/agent-oauth/callback"));
+  url.searchParams.set(
+    "state",
+    createSlackOAuthState({
+      kind: "agent",
+      id: app.id,
+      returnTo: normalizeReturnTo(returnTo),
+    })
+  );
+
+  return { ...app, install_url: url.toString() };
+}
+
 function randomSuffix() {
   return randomBytes(3).toString("hex");
 }
@@ -173,7 +211,7 @@ export async function getSlackHome(userId: string) {
       ...agent,
       scout_channels: channelsByAgent.get(agent.id as string) || [],
     })),
-    agentApps: agentApps || [],
+    agentApps: (agentApps || []).map((app) => withFreshAgentInstallUrl(app, defaultLocalReturnTo())),
     channelMappings: channelMappings || [],
     taskCount: taskCount || 0,
   };
@@ -442,7 +480,7 @@ export async function createAgentSlackApp(params: {
   if (installUrl) {
     const url = new URL(installUrl);
     url.searchParams.set("redirect_uri", appUrl("/api/slack/agent-oauth/callback"));
-    url.searchParams.set("state", createSlackOAuthState({ kind: "agent", id: data.id, returnTo: params.returnTo }));
+    url.searchParams.set("state", createSlackOAuthState({ kind: "agent", id: data.id, returnTo: normalizeReturnTo(params.returnTo) }));
     installUrl = url.toString();
 
     const { data: updated, error: updateError } = await admin

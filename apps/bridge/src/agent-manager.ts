@@ -15,6 +15,7 @@ const __dirname = dirname(__filename);
 const ACTIVITY_HEARTBEAT_MS = 60_000; // Re-broadcast active state every 60s
 const CODEX_TURN_TIMEOUT_MS = Number(process.env.SCOUT_CODEX_TURN_TIMEOUT_MS || 300_000);
 const AGENT_RUNNER = (process.env.SCOUT_AGENT_RUNNER || "codex").toLowerCase();
+const CODEX_MODEL = process.env.SCOUT_CODEX_MODEL || "gpt-5.5";
 
 interface AgentRecord {
   id: string;
@@ -683,13 +684,14 @@ Return the exact message that should appear in chat as your final answer.
 
 ${userMessage}`;
       const args = [
-        "--search",
         "exec",
         "--skip-git-repo-check",
         "--json",
         "--color",
         "never",
         "--dangerously-bypass-approvals-and-sandbox",
+        "--model",
+        CODEX_MODEL,
         "-C",
         session.workDir,
       ];

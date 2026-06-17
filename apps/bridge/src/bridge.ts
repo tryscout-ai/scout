@@ -452,7 +452,7 @@ export class Bridge {
     const token = await this.resolveSlackAgentToken(agentId);
     const messageTs = await this.postSlack(
       slackRef.slack_channel_id,
-      `${agentName} is working on task #${task.task_number}...`,
+      `Working on task #${task.task_number}...`,
       slackRef.slack_thread_ts || slackRef.slack_message_ts,
       token
     );

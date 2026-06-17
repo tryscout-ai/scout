@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const referer = request.headers.get("referer");
-    const requestedReturnTo = String(body.returnTo || "");
+    const requestedReturnTo = String(body.returnTo || "").replace(/^https:\/\/(localhost|127\.0\.0\.1)(?=[:/])/, "http://$1");
     const returnTo = requestedReturnTo.startsWith(request.nextUrl.origin)
       ? requestedReturnTo
       : requestedReturnTo.startsWith("/")

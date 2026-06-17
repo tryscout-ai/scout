@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { exchangeSlackCode, storeWorkspaceInstall } from "@/lib/slack/platform";
+import { exchangeSlackCode, normalizeSlackReturnTo, storeWorkspaceInstall } from "@/lib/slack/platform";
 import { verifySlackOAuthState } from "@/lib/slack/oauth-state";
 
 function slackInstallErrorMessage(err: unknown) {
@@ -47,7 +47,7 @@ export async function handleWorkspaceSlackOAuthCallback(request: NextRequest) {
       userAccessToken: oauth.authed_user?.access_token,
     });
 
-    return NextResponse.redirect(new URL(payload.returnTo, request.url));
+    return NextResponse.redirect(new URL(normalizeSlackReturnTo(payload.returnTo), request.url));
   } catch (err) {
     const message = encodeURIComponent(slackInstallErrorMessage(err));
     return NextResponse.redirect(new URL(`/slack?error=${message}`, request.url));

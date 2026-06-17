@@ -36,7 +36,7 @@ function defaultLocalReturnTo() {
   return process.env.SCOUT_SLACK_RETURN_TO_URL || "http://localhost:3000/slack";
 }
 
-function normalizeReturnTo(returnTo?: string | null) {
+export function normalizeSlackReturnTo(returnTo?: string | null) {
   if (!returnTo) return defaultLocalReturnTo();
 
   try {
@@ -63,7 +63,7 @@ function withFreshAgentInstallUrl<T extends { id: string; install_url: string | 
     createSlackOAuthState({
       kind: "agent",
       id: app.id,
-      returnTo: normalizeReturnTo(returnTo),
+      returnTo: normalizeSlackReturnTo(returnTo),
     })
   );
 
@@ -272,20 +272,60 @@ export async function storeWorkspaceInstall(params: {
   userAccessToken?: string | null;
 }) {
   const admin = createAdminClient();
+
+  const workspacePayload = {
+    server_id: params.serverId,
+    owner_id: params.userId,
+    slack_team_id: params.teamId,
+    slack_team_name: params.teamName || null,
+    bot_user_id: params.botUserId || null,
+    bot_access_token_encrypted: encryptSecret(params.botAccessToken),
+    access_token_encrypted: encryptSecret(params.userAccessToken),
+    install_status: "connected",
+    last_error: null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existingTeamWorkspace, error: existingTeamError } = await admin
+    .from("slack_workspaces")
+    .select("id")
+    .eq("slack_team_id", params.teamId)
+    .maybeSingle();
+
+  if (existingTeamError) throw new Error(existingTeamError.message);
+
+  if (existingTeamWorkspace) {
+    const { data: staleServerWorkspace, error: staleServerError } = await admin
+      .from("slack_workspaces")
+      .select("id")
+      .eq("server_id", params.serverId)
+      .neq("id", existingTeamWorkspace.id)
+      .maybeSingle();
+
+    if (staleServerError) throw new Error(staleServerError.message);
+    if (staleServerWorkspace) {
+      const { error: deleteError } = await admin
+        .from("slack_workspaces")
+        .delete()
+        .eq("id", staleServerWorkspace.id);
+
+      if (deleteError) throw new Error(deleteError.message);
+    }
+
+    const { data, error } = await admin
+      .from("slack_workspaces")
+      .update(workspacePayload)
+      .eq("id", existingTeamWorkspace.id)
+      .select("*")
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
   const { data, error } = await admin
     .from("slack_workspaces")
-    .upsert({
-      server_id: params.serverId,
-      owner_id: params.userId,
-      slack_team_id: params.teamId,
-      slack_team_name: params.teamName || null,
-      bot_user_id: params.botUserId || null,
-      bot_access_token_encrypted: encryptSecret(params.botAccessToken),
-      access_token_encrypted: encryptSecret(params.userAccessToken),
-      install_status: "connected",
-      last_error: null,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "server_id" })
+    .upsert(workspacePayload, { onConflict: "server_id" })
     .select("*")
     .single();
 
@@ -480,7 +520,7 @@ export async function createAgentSlackApp(params: {
   if (installUrl) {
     const url = new URL(installUrl);
     url.searchParams.set("redirect_uri", appUrl("/api/slack/agent-oauth/callback"));
-    url.searchParams.set("state", createSlackOAuthState({ kind: "agent", id: data.id, returnTo: normalizeReturnTo(params.returnTo) }));
+    url.searchParams.set("state", createSlackOAuthState({ kind: "agent", id: data.id, returnTo: normalizeSlackReturnTo(params.returnTo) }));
     installUrl = url.toString();
 
     const { data: updated, error: updateError } = await admin

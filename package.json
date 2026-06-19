@@ -1,0 +1,33 @@
+{
+  "name": "scout",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "dev:web": "pnpm --filter @scout/web dev",
+    "dev:bridge": "pnpm --filter @scout/scout-bridge dev",
+    "db:generate": "pnpm --filter @scout/db generate",
+    "db:push": "pnpm --filter @scout/db push"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@scout-ai/scout-bridge": "^0.1.6",
+    "@slock-ai/daemon": "^0.40.2",
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.106.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "react-notion-avatar>@types/react": "^19",
+      "react-notion-avatar>@types/react-dom": "^19"
+    }
+  }
+}

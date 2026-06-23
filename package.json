@@ -6,7 +6,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "dev:web": "pnpm --filter @scout/web dev",
-    "dev:bridge": "pnpm --filter @scout/scout-bridge dev",
+    "dev:bridge": "pnpm --filter @scout-ai/scout-bridge dev",
     "db:generate": "pnpm --filter @scout/db generate",
     "db:push": "pnpm --filter @scout/db push"
   },
@@ -19,7 +19,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@scout-ai/scout-bridge": "^0.1.6",
+    "@scout-ai/scout-bridge": "^0.2.7",
     "@slock-ai/daemon": "^0.40.2",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.1"

@@ -357,7 +357,13 @@ export class Bridge {
       payload.thread_parent_id = msg.thread_parent_id;
     }
 
-    const { error } = await this.supabase.from("messages").insert(payload);
+     console.time("supabase-insert");
+
+const { error } = await this.supabase
+  .from("messages")
+  .insert(payload);
+
+console.timeEnd("supabase-insert");
     if (error) {
       throw new Error(error.message);
     }
@@ -427,10 +433,20 @@ export class Bridge {
           : `${msgHeader} ${msg.content}`;
 
         // Fire-and-forget: agent handles all responses via `scout` CLI
-        const reply = await this.agentManager.sendToAgent(agentId, prompt);
-        if (typeof reply === "string" && reply.trim()) {
-          await this.sendAgentReply(agentId, msg, reply);
-        }
+        console.time("full-agent");
+
+const reply = await this.agentManager.sendToAgent(agentId, prompt);
+
+console.timeEnd("full-agent");
+console.log("SENDTOAGENT RETURNED", Date.now());
+
+if (typeof reply === "string" && reply.trim()) {
+  console.log("ABOUT TO INSERT INTO DB", Date.now());
+
+  await this.sendAgentReply(agentId, msg, reply);
+
+  console.log("DB INSERT FINISHED", Date.now());
+}
       } catch (err) {
         this.agentManager.markError(
           agentId,

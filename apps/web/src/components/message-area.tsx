@@ -70,6 +70,9 @@ export function MessageArea({
   const supabase = createClient();
   const agentActivities = useAgentActivity();
 
+  console.log("MESSAGE AREA RENDERED");
+console.log("CHANNEL:", channel);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) setUserId(user.id);
@@ -351,6 +354,7 @@ export function MessageArea({
     const d = new Date(dateStr);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
+  
 
   return (
     <div className="flex flex-1 flex-col bg-card max-w-full text-pretty">

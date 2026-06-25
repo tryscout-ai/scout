@@ -1,6 +1,6 @@
 {
-  "name": "@scout/scout-cli",
-  "version": "0.1.0",
+  "name": "@scout-ai/scout-cli",
+  "version": "0.1.1",
   "description": "Scout CLI — agent communication tool for Scout platform",
   "type": "module",
   "bin": {

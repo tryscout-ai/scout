@@ -35,6 +35,7 @@ export interface SlackTaskResult {
   taskNumber: number;
   messageId: string;
   scoutChannelId: string;
+  serverId: string | null;
   slackThreadTs: string | null;
   created: boolean;
   assigneeName: string | null;
@@ -94,6 +95,27 @@ function requireEnv(name: string): string {
     throw new Error(`Missing ${name}`);
   }
   return value;
+}
+
+async function isBridgeRecentlyOnline(admin: SupabaseAdmin, serverId: string | null) {
+  if (!serverId) return null;
+
+  const { data, error } = await admin
+    .from("machine_keys")
+    .select("last_used_at")
+    .eq("server_id", serverId)
+    .order("last_used_at", { ascending: false, nullsFirst: false })
+    .limit(1);
+
+  if (error) {
+    console.warn("[Slack] Could not check bridge heartbeat:", error.message);
+    return null;
+  }
+
+  const lastUsedAt = data?.[0]?.last_used_at;
+  if (!lastUsedAt) return false;
+
+  return Date.now() - new Date(lastUsedAt as string).getTime() < 90_000;
 }
 
 export function verifySlackRequest(rawBody: string, timestamp: string | null, signature: string | null, signingSecret = process.env.SLACK_SIGNING_SECRET): boolean {
@@ -532,6 +554,7 @@ export async function createTaskFromSlackMessage(params: {
     if (existingTask) {
       return {
         ...existingTask,
+        serverId: channelResolution.serverId,
         created: false,
         assigneeName,
         assigneeHandle,
@@ -591,6 +614,7 @@ export async function createTaskFromSlackMessage(params: {
 
       return {
         ...existingTask,
+        serverId: channelResolution.serverId,
         created: false,
         assigneeName,
         assigneeHandle,
@@ -606,7 +630,7 @@ export async function createTaskFromSlackMessage(params: {
       channel_id: scoutChannelId,
       assignee_id: agentId,
       assignee_type: agentId ? "agent" : null,
-      status: agentId ? "in_progress" : "todo",
+      status: "todo",
     })
     .select("id, task_number")
     .single();
@@ -637,6 +661,7 @@ export async function createTaskFromSlackMessage(params: {
     taskNumber: task.task_number,
     messageId: message.id,
     scoutChannelId,
+    serverId: channelResolution.serverId,
     slackThreadTs,
     created: true,
     assigneeName,
@@ -665,9 +690,17 @@ export async function postTaskCreatedToSlack(ref: SlackMessageRef, result: Slack
   const collaboratorText = collaboratorNames.length
     ? ` Collaborators: ${collaboratorNames.join(", ")}.`
     : "";
-  const text = result.assigneeName
-    ? `Scout created task #${result.taskNumber} and assigned lead agent ${result.assigneeName}.${collaboratorText} Coordination will continue in this Slack thread.`
-    : `Scout created task #${result.taskNumber}. Configure SCOUT_SLACK_LEAD_AGENT_ID or SCOUT_SLACK_DEFAULT_AGENT_ID to have Scout run Slack tasks automatically.`;
+  const bridgeOnline = await isBridgeRecentlyOnline(admin, result.serverId);
+  let text: string;
+
+  if (!result.assigneeName) {
+    text = `Scout created task #${result.taskNumber}. Configure SCOUT_SLACK_LEAD_AGENT_ID or SCOUT_SLACK_DEFAULT_AGENT_ID to have Scout run Slack tasks automatically.`;
+  } else if (bridgeOnline === false) {
+    text = `Scout created task #${result.taskNumber} and assigned lead agent ${result.assigneeName}.${collaboratorText} The local Scout bridge is offline, so this task is queued. Start the bridge and ${result.assigneeName} will continue in this Slack thread.`;
+  } else {
+    text = `Scout created task #${result.taskNumber} and assigned lead agent ${result.assigneeName}.${collaboratorText} ${result.assigneeName} should post a kickoff here shortly.`;
+  }
+
   const ts = await postSlackMessage(ref.channelId, text, ref.threadTs || ref.messageTs || result.slackThreadTs, token || undefined);
   return ts;
 }

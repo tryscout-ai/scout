@@ -84,6 +84,23 @@ CREATE POLICY "Users can send messages in their channels"
     )
   );
 
+-- Tasks: users can see/manage tasks in channels they belong to directly or through an owned agent.
+DROP POLICY IF EXISTS "Channel members can view tasks" ON public.tasks;
+CREATE POLICY "Channel members can view tasks"
+  ON public.tasks FOR SELECT
+  USING (
+    public.user_is_channel_member(channel_id)
+    OR public.user_has_agent_in_channel(channel_id)
+  );
+
+DROP POLICY IF EXISTS "Channel members can manage tasks" ON public.tasks;
+CREATE POLICY "Channel members can manage tasks"
+  ON public.tasks FOR ALL
+  USING (
+    public.user_is_channel_member(channel_id)
+    OR public.user_has_agent_in_channel(channel_id)
+  );
+
 -- Agents: ensure owner can see their own agents
 DROP POLICY IF EXISTS "Agents are viewable by everyone" ON public.agents;
 CREATE POLICY "Agents are viewable by everyone"

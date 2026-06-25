@@ -134,9 +134,61 @@ export async function ensureSlackServer(userId: string) {
   return created;
 }
 
+async function ensureSlackBridgeKey(userId: string, serverId: string) {
+  const admin = createAdminClient();
+  const { data: existing, error: existingError } = await admin
+    .from("machine_keys")
+    .select("id, key_prefix, key_value, last_used_at")
+    .eq("user_id", userId)
+    .eq("server_id", serverId)
+    .eq("name", "Slack bridge")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
+
+  if (existing?.key_value) return existing;
+
+  const rawKey = randomBytes(32).toString("hex");
+  const apiKey = `zk_${rawKey}`;
+
+  if (existing) {
+    const { data, error } = await admin
+      .from("machine_keys")
+      .update({
+        key_prefix: `zk_${rawKey.substring(0, 8)}`,
+        key_hash: createHash("sha256").update(apiKey).digest("hex"),
+        key_value: apiKey,
+      })
+      .eq("id", existing.id)
+      .select("id, key_prefix, key_value, last_used_at")
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  const { data, error } = await admin
+    .from("machine_keys")
+    .insert({
+      key_prefix: `zk_${rawKey.substring(0, 8)}`,
+      key_hash: createHash("sha256").update(apiKey).digest("hex"),
+      key_value: apiKey,
+      user_id: userId,
+      server_id: serverId,
+      name: "Slack bridge",
+    })
+    .select("id, key_prefix, key_value, last_used_at")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function getSlackHome(userId: string) {
   const admin = createAdminClient();
   const server = await ensureSlackServer(userId);
+  const bridgeKey = await ensureSlackBridgeKey(userId, server.id);
 
   const { data: workspace } = await admin
     .from("slack_workspaces")
@@ -206,6 +258,14 @@ export async function getSlackHome(userId: string) {
 
   return {
     server,
+    bridgeKey: {
+      key_prefix: bridgeKey.key_prefix,
+      key_value: bridgeKey.key_value,
+      last_used_at: bridgeKey.last_used_at,
+      online: bridgeKey.last_used_at
+        ? Date.now() - new Date(bridgeKey.last_used_at as string).getTime() < 90_000
+        : false,
+    },
     workspace,
     agents: (agents || []).map((agent) => ({
       ...agent,

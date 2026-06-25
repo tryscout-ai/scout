@@ -302,16 +302,12 @@ create policy "Channel members can send messages" on public.messages for insert 
 
 -- Tasks: same as messages
 create policy "Channel members can view tasks" on public.tasks for select using (
-  exists (
-    select 1 from public.channel_members
-    where channel_id = tasks.channel_id and member_id = auth.uid()
-  )
+  public.user_is_channel_member(channel_id) or
+  public.user_has_agent_in_channel(channel_id)
 );
 create policy "Channel members can manage tasks" on public.tasks for all using (
-  exists (
-    select 1 from public.channel_members
-    where channel_id = tasks.channel_id and member_id = auth.uid()
-  )
+  public.user_is_channel_member(channel_id) or
+  public.user_has_agent_in_channel(channel_id)
 );
 
 create policy "Channel members can view task collaborators" on public.task_collaborators for select using (

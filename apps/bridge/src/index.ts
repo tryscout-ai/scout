@@ -74,7 +74,7 @@ function parseArgs(): { serverUrl: string; apiKey: string; agentsDir: string } {
     console.error("  Generate one at your workspace settings page,");
     console.error("  then run:");
     console.error("");
-    console.error("    npx @scout/scout-bridge --api-key zk_your_key_here");
+    console.error("    npx @scout-ai/scout-bridge --api-key zk_your_key_here");
     console.error("");
     process.exit(1);
   }

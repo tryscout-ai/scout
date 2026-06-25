@@ -15,7 +15,8 @@ const __dirname = dirname(__filename);
 const ACTIVITY_HEARTBEAT_MS = 60_000; // Re-broadcast active state every 60s
 const CODEX_TURN_TIMEOUT_MS = Number(process.env.SCOUT_CODEX_TURN_TIMEOUT_MS || 300_000);
 const AGENT_RUNNER = (process.env.SCOUT_AGENT_RUNNER || "codex").toLowerCase();
-const CODEX_MODEL = process.env.SCOUT_CODEX_MODEL || "gpt-5.5";
+const CODEX_MODEL = process.env.SCOUT_CODEX_MODEL || "gpt-5.4";
+const CODEX_SERVICE_TIER = process.env.SCOUT_CODEX_SERVICE_TIER || "fast";
 
 interface AgentRecord {
   id: string;
@@ -472,10 +473,15 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
     const wrapperPath = join(scoutDir, "scout");
     let wrapperBody: string;
 
-    // Try to resolve the compiled CLI from @scout/scout-cli npm package first
+    // Try to resolve the compiled CLI from the published package first.
     try {
       const req = createRequire(import.meta.url);
-      const cliPath = req.resolve("@scout/scout-cli/dist/index.js");
+      let cliPath: string;
+      try {
+        cliPath = req.resolve("@scout-ai/scout-cli/dist/index.js");
+      } catch {
+        cliPath = req.resolve("@scout/scout-cli/dist/index.js");
+      }
       // Published mode: use node to run compiled JS directly
       wrapperBody = `#!/usr/bin/env bash\nexec node '${cliPath.replace(/'/g, "'\\''")}' "$@"\n`;
       console.log(`  [${session.displayName}] CLI resolved from npm package: ${cliPath}`);
@@ -689,6 +695,9 @@ ${userMessage}`;
         "--json",
         "--color",
         "never",
+        "--ignore-user-config",
+        "-c",
+        `service_tier="${CODEX_SERVICE_TIER}"`,
         "--dangerously-bypass-approvals-and-sandbox",
         "--model",
         CODEX_MODEL,
@@ -721,6 +730,8 @@ ${userMessage}`;
 
       let stdoutBuffer = "";
       let finalText = "";
+      let failureText = "";
+      let stderrText = "";
 
       return await new Promise<string>((resolve, reject) => {
         let settled = false;
@@ -749,7 +760,9 @@ ${userMessage}`;
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed.startsWith("{")) continue;
-            finalText = this.handleCodexStreamEvent(agentId, agentProc, trimmed, finalText);
+            const result = this.handleCodexStreamEvent(agentId, agentProc, trimmed, finalText);
+            finalText = result.finalText;
+            if (result.failureText) failureText = result.failureText;
           }
         });
 
@@ -759,6 +772,7 @@ ${userMessage}`;
           if (/Reading additional input from stdin|Reading prompt from stdin|startup remote plugin sync failed|featured plugin ids cache/i.test(text)) {
             return;
           }
+          stderrText = `${stderrText}\n${text}`.trim();
           console.error(`  [${session.displayName}] stderr: ${text.substring(0, 200)}`);
         });
 
@@ -775,11 +789,12 @@ ${userMessage}`;
         turnProc.on("close", (code: number | null) => {
           finish(() => {
             if (code !== 0) {
+              const detail = failureText || stderrText;
               agentProc.busy = false;
-              this.broadcastActivity(agentId, "error", "Error", `Codex exited with code ${code}`);
+              this.broadcastActivity(agentId, "error", "Error", detail || `Codex exited with code ${code}`);
               console.log(`  [${session.displayName}] Codex turn exited with code ${code}`);
               this.drainQueue(agentId, agentProc);
-              reject(new Error(`Codex exited with code ${code}`));
+              reject(new Error(detail || `Codex exited with code ${code}`));
               return;
             }
 
@@ -805,12 +820,12 @@ ${userMessage}`;
     agentProc: AgentProcess,
     line: string,
     finalText: string
-  ): string {
+  ): { finalText: string; failureText?: string } {
     let event: any;
     try {
       event = JSON.parse(line);
     } catch {
-      return finalText;
+      return { finalText };
     }
 
     const session = this.sessions.get(agentId);
@@ -826,12 +841,30 @@ ${userMessage}`;
           this.broadcastActivity(agentId, "working", "", event.item.text);
         }
         break;
+      case "error":
+        return { finalText, failureText: this.formatCodexError(event.message) };
+      case "turn.failed":
+        return { finalText, failureText: this.formatCodexError(event.error?.message) };
       case "turn.completed":
         console.log(`  [${displayName}] Turn complete.`);
         break;
     }
 
-    return finalText;
+    return { finalText };
+  }
+
+  private formatCodexError(message: unknown): string {
+    if (typeof message !== "string") return "Codex turn failed";
+
+    try {
+      const parsed = JSON.parse(message);
+      const nested = parsed?.error?.message;
+      if (typeof nested === "string" && nested.trim()) return nested;
+    } catch {
+      // Message was already plain text.
+    }
+
+    return message;
   }
 
   private handleStreamEvent(

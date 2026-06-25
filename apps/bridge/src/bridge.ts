@@ -463,7 +463,7 @@ export class Bridge {
     const token = await this.resolveSlackAgentToken(agentId);
     const messageTs = await this.postSlack(
       slackRef.slack_channel_id,
-      `Working on task #${task.task_number}...`,
+      `${agentName} is starting task #${task.task_number}...`,
       slackRef.slack_thread_ts || slackRef.slack_message_ts,
       token
     );
@@ -814,13 +814,25 @@ export class Bridge {
           await this.sendAgentReply(agentId, msg, reply);
         }
       } catch (err) {
+        const message =
+          err instanceof Error ? err.message : String(err);
+        await this.sendAgentReply(
+          agentId,
+          msg,
+          `I couldn't start my local runner for this request: ${message}`
+        ).catch((sendErr) => {
+          console.error(
+            `  [${agent.display_name}] Could not send runner failure reply:`,
+            sendErr instanceof Error ? sendErr.message : sendErr
+          );
+        });
         this.agentManager.markError(
           agentId,
-          err instanceof Error ? err.message : String(err)
+          message
         );
         console.error(
           `  [${agent.display_name}] Error:`,
-          err instanceof Error ? err.message : err
+          message
         );
       }
     }
@@ -864,7 +876,7 @@ export class Bridge {
     const channelIds = Array.from(this.channelAgents.keys());
     if (channelIds.length === 0) return;
 
-    const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: tasks, error } = await this.supabase
       .from("tasks")
       .select("id, task_number, status, assignee_id, assignee_type, channel_id, message_id, created_at")
@@ -956,6 +968,25 @@ export class Bridge {
       `  [${agent.display_name}] Received ${role} task #${task.task_number}: "${message.content.substring(0, 60)}${message.content.length > 60 ? "..." : ""}"`
     );
 
+    if (role === "lead" && task.status === "todo") {
+      const { error: updateError } = await this.supabase
+        .from("tasks")
+        .update({
+          assignee_id: targetAgentId,
+          assignee_type: "agent",
+          status: "in_progress",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", task.id);
+
+      if (updateError) {
+        console.error(
+          `  [Bridge] Could not mark task #${task.task_number} in progress:`,
+          updateError.message
+        );
+      }
+    }
+
     const progressNote = await this.postSlackProgressNote(task, targetAgentId, agent.display_name);
 
     try {
@@ -969,15 +1000,25 @@ export class Bridge {
       }
       await this.clearSlackProgressNote(progressNote);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await this.clearSlackProgressNote(progressNote, message);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      await this.sendAgentReply(
+        targetAgentId,
+        { ...(message as DbMessage), thread_parent_id: task.message_id },
+        `I couldn't start my local runner for task #${task.task_number}: ${errorMessage}`
+      ).catch((sendErr) => {
+        console.error(
+          `  [${agent.display_name}] Could not send task failure reply:`,
+          sendErr instanceof Error ? sendErr.message : sendErr
+        );
+      });
+      await this.clearSlackProgressNote(progressNote, errorMessage);
       this.agentManager.markError(
         targetAgentId,
-        message
+        errorMessage
       );
       console.error(
         `  [${agent.display_name}] Task #${task.task_number} error:`,
-        message
+        errorMessage
       );
     }
   }

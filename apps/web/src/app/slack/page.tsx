@@ -3,6 +3,7 @@
 import {
   BotIcon,
   CheckCircle2Icon,
+  CopyIcon,
   ExternalLinkIcon,
   HashIcon,
   LayoutDashboardIcon,
@@ -56,6 +57,12 @@ interface SlackChannel {
 
 interface SlackHome {
   server: { id: string; name: string; slug: string };
+  bridgeKey: {
+    key_prefix: string;
+    key_value: string | null;
+    last_used_at: string | null;
+    online: boolean;
+  };
   workspace: SlackWorkspace | null;
   agents: SlackAgent[];
   agentApps: SlackAgentApp[];
@@ -79,6 +86,10 @@ export default function SlackPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [copiedBridgeCommand, setCopiedBridgeCommand] = useState(false);
+  const [serverUrl] = useState(() =>
+    typeof window === "undefined" ? "" : window.location.origin
+  );
   const [form, setForm] = useState({
     display_name: "",
     description: "",
@@ -134,6 +145,20 @@ export default function SlackPage() {
   const installedCount = (home?.agentApps || []).filter((app) => app.install_status === "installed").length;
   const mappedCount = home?.channelMappings.length || 0;
   const slackButtonLabel = home?.workspace ? "Reconnect Slack" : "Connect Slack";
+  const slackBridgeCommand = home?.bridgeKey?.key_value
+    ? [
+        "npx @scout-ai/scout-bridge@0.1.6",
+        serverUrl ? `--server-url ${serverUrl}` : "",
+        `--api-key ${home.bridgeKey.key_value}`,
+      ].filter(Boolean).join(" ")
+    : "";
+
+  async function copySlackBridgeCommand() {
+    if (!slackBridgeCommand) return;
+    await navigator.clipboard.writeText(slackBridgeCommand);
+    setCopiedBridgeCommand(true);
+    setTimeout(() => setCopiedBridgeCommand(false), 2000);
+  }
 
   async function createAgent(event: React.FormEvent) {
     event.preventDefault();
@@ -335,6 +360,30 @@ export default function SlackPage() {
                   <div className="font-semibold text-2xl text-foreground">{home?.taskCount || 0}</div>
                   <div className="mt-1 text-muted-foreground text-xs">created from Slack</div>
                 </div>
+              </section>
+
+              <section className="rounded-lg border bg-card p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <h2 className="font-medium text-foreground">Slack bridge</h2>
+                      {home?.bridgeKey.online ? <Badge variant="success">Online</Badge> : <Badge variant="warning">Offline</Badge>}
+                    </div>
+                    <p className="text-muted-foreground text-sm">
+                      Slack-native agents run from the Slack Agents server, so they need this bridge key even when another Scout bridge is online.
+                    </p>
+                    <div className="mt-2 text-muted-foreground text-xs">
+                      Last seen: {home?.bridgeKey.last_used_at ? new Date(home.bridgeKey.last_used_at).toLocaleString() : "Never"}
+                    </div>
+                  </div>
+                  <Button disabled={!slackBridgeCommand} onClick={copySlackBridgeCommand} size="sm" type="button" variant="outline">
+                    {copiedBridgeCommand ? <CheckCircle2Icon /> : <CopyIcon />}
+                    {copiedBridgeCommand ? "Copied" : "Copy command"}
+                  </Button>
+                </div>
+                <code className="mt-3 block overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-muted-foreground text-xs">
+                  {slackBridgeCommand || "Bridge key unavailable"}
+                </code>
               </section>
 
               <section className="rounded-lg border bg-card">

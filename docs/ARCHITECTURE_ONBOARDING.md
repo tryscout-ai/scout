@@ -197,7 +197,7 @@ The browser is already subscribed to message inserts, so the agent reply appears
 The local bridge is a Node command-line program that a user runs locally:
 
 ```bash
-npx @scout/scout-bridge --api-key zk_your_key_here
+npx @scout-ai/scout-bridge --api-key zk_your_key_here
 ```
 
 It is not the frontend. It is not Supabase. It is not just a webhook.

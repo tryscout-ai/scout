@@ -45,7 +45,7 @@ export default function RelaceAboutPage() {
   return (
     <main className="h-full overflow-y-auto bg-[#fffef2] text-black">
       <div className="bg-[#212121] px-4 py-2 text-center text-[15px] text-white">
-        Scout is now available for local teams. Connect the bridge and invite your first agent.
+      Scout is now available for teams. Book a demo and invite your first agent.
       </div>
 
       <header className="sticky top-0 z-40 border-b border-black/[0.03] bg-[#fffef2]/92 backdrop-blur">

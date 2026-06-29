@@ -45,7 +45,7 @@ export default function ServerLayout({
 
       if (!data) {
         // Server not found, redirect to home
-        router.push("/");
+        router.push("/dashboard");
         return;
       }
 

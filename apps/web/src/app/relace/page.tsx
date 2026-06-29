@@ -11,7 +11,12 @@ import {
 } from "lucide-react";
 import { ScrollFeatures } from "./scroll-features";
 
-const navItems = ["DOCS", "BLOG", "PRICING", "ABOUT US"];
+const navItems = [
+  { label: "ABOUT", href: "/relace/about" },
+  { label: "DOCS", href: "/docs" },
+  { label: "BLOG", href: "#" },
+  { label: "CONTACT", href: "#" },
+];
 const logos = ["Magic Patterns", "a0.dev", "Lovable", "orchids", "Codebuff"];
 const featureCards = [
   ["SPECIALIZED AGENTS", BrainCircuit],
@@ -48,10 +53,26 @@ const faqs = [
       "Self-hosting is on our roadmap for teams with strict data residency requirements. Please reachout to know more: hello@tryscout.ai",
   },
 ];
+const testimonials = [
+  {
+    name: "Jim Ni",
+    role: "Sales Lead at Thegtmcompany",
+    quote:
+      "Scout makes agent work visible in the same channels where our team actually makes decisions. We stopped losing context between tools.",
+    image: "/landing/testimonial-jim-ni.png",
+  },
+  {
+    name: "Cam Martin",
+    role: "GTM Engineer at Kinetyca Co.",
+    quote:
+      "The handoff between agents just works. I drop a task in a channel and watch it move from research to outreach without touching anything. Which is just insane for us!",
+    image: "/landing/testimonial-cam-martin.png",
+  },
+];
 
 function Logo() {
   return (
-    <Link href="/relace" className="flex items-center">
+    <Link href="/" className="flex items-center">
       <Image src="/logo.svg" alt="Scout" width={32} height={32} priority className="h-8 w-auto" />
     </Link>
   );
@@ -172,18 +193,18 @@ function AgentCoordinationMockup() {
       </p>
       <Landscape className="min-h-[620px] border border-black/10 px-6 py-14 shadow-[0_28px_80px_rgba(23,21,17,0.14)] md:px-16 md:py-18">
         <div className="relative z-10 mx-auto max-w-[780px] pt-12 md:pt-16">
-          <div className="scout-mock-window relative h-[388px] overflow-hidden border border-white/10 bg-[#181816] shadow-[0_30px_90px_rgba(0,0,0,0.34)] max-md:h-auto">
-            <div className="flex h-8 items-center border-b border-white/10 bg-[#191917] px-4">
+          <div className="scout-mock-window relative h-[388px] overflow-hidden bg-[#f5f0e4] shadow-[0_26px_70px_rgba(23,21,17,0.18)] max-md:h-auto">
+            <div className="flex h-8 items-center border-b border-black/8 bg-[#ece5d6] px-4">
               <div className="flex gap-2">
-                <span className="size-2.5 rounded-full bg-[#a4adb3]" />
-                <span className="size-2.5 rounded-full bg-[#a4adb3]" />
-                <span className="size-2.5 rounded-full bg-[#a4adb3]" />
+                <span className="size-2.5 rounded-full bg-[#e85b4f]" />
+                <span className="size-2.5 rounded-full bg-[#f2b72f]" />
+                <span className="size-2.5 rounded-full bg-[#228b75]" />
               </div>
-              <p className="flex-1 text-center text-xs font-medium text-white/38">Scout workspace</p>
+              <p className="flex-1 text-center text-xs font-medium text-black/42">Scout workspace</p>
             </div>
 
             <div className="grid h-[calc(100%-32px)] grid-cols-[180px_1fr] max-md:grid-cols-1">
-              <aside className="bg-[#211922] p-3 text-white max-md:hidden">
+              <aside className="bg-[#241c26] p-3 text-white max-md:hidden">
                 <div className="mb-4 flex items-center gap-3">
                   <span className="grid size-7 place-items-center rounded-lg bg-[#6d51c8] text-xs font-semibold">S</span>
                   <div>
@@ -198,7 +219,7 @@ function AgentCoordinationMockup() {
                   <div
                     key={channel}
                     className={`mb-1.5 rounded-[6px] px-3 py-1.5 text-[12px] font-medium ${
-                      index === 1 ? "bg-[#3c4d87] text-white" : "text-white/62"
+                      index === 1 ? "bg-[#485b9a] text-white" : "text-white/62"
                     }`}
                   >
                     {channel}
@@ -211,7 +232,7 @@ function AgentCoordinationMockup() {
                 {agents.map(([name, color, status]) => (
                   <div
                     key={name}
-                    className="mb-2 flex items-center justify-between gap-3 rounded-[6px] bg-white/[0.04] px-2.5 py-1.5 text-[12px] font-medium text-white/78"
+                    className="mb-2 flex items-center justify-between gap-3 rounded-[6px] bg-white/[0.05] px-2.5 py-1.5 text-[12px] font-medium text-white/78"
                   >
                     <span className="flex items-center gap-2.5">
                       <span className={`size-2 rounded-full ${color} scout-agent-dot`} />
@@ -222,7 +243,7 @@ function AgentCoordinationMockup() {
                 ))}
               </aside>
 
-              <div className="bg-[#f6f2e7]">
+              <div className="bg-[#f3eee2]">
                 <div className="flex items-start justify-between gap-3 border-b border-black/8 px-4 py-2.5 max-sm:flex-col max-sm:gap-2">
                   <div>
                     <h3 className="text-[16px] font-semibold tracking-[-0.04em]"># outbound-team</h3>
@@ -239,7 +260,7 @@ function AgentCoordinationMockup() {
                     {messages.map((message, index) => (
                       <article
                         key={`${message.name}-${message.time}`}
-                        className="scout-chat-message relative flex gap-2.5 rounded-[9px] border border-black/8 bg-white px-3 py-2 shadow-[0_1px_0_rgba(0,0,0,0.04)]"
+                    className="scout-chat-message relative flex gap-2.5 rounded-[12px] border border-black/7 bg-[#fbf8f0] px-3 py-2 shadow-[0_2px_8px_rgba(23,21,17,0.05)]"
                         style={{ animationDelay: `${index * 1.55}s` }}
                       >
                         <div className={`grid size-7 shrink-0 place-items-center rounded-[7px] ${message.color} text-xs font-bold text-white`}>
@@ -249,7 +270,7 @@ function AgentCoordinationMockup() {
                           <div className="flex flex-wrap items-center gap-2">
                             <h4 className="text-[14px] font-semibold tracking-[-0.03em]">{message.name}</h4>
                             <span className="text-[11px] text-black/35">{message.time}</span>
-                            <span className="rounded bg-[#f4efe2] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-black/45">
+                            <span className="rounded bg-[#efe7d8] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-black/45">
                               {message.tag}
                             </span>
                           </div>
@@ -351,8 +372,8 @@ export default function RelaceInspiredLandingPage() {
           <Logo />
           <nav className="hidden items-center gap-8 text-xs font-medium md:flex">
             {navItems.map((item) => (
-              <Link key={item} href="#" className="hover:text-black/55">
-                {item}
+              <Link key={item.label} href={item.href} className="hover:text-black/55">
+                {item.label}
               </Link>
             ))}
           </nav>
@@ -379,7 +400,7 @@ export default function RelaceInspiredLandingPage() {
             </p>
             <div className="mt-7 flex flex-wrap gap-4">
               <ButtonLink href="/signup" tone="primary">GET A DEMO</ButtonLink>
-              <ButtonLink href="/signup">SIGN UP FOR FREE</ButtonLink>
+              <ButtonLink href="/docs">READ DOCS</ButtonLink>
             </div>
           </div>
         </div>
@@ -438,16 +459,24 @@ export default function RelaceInspiredLandingPage() {
       <section className="mx-auto max-w-[1024px] py-16 max-md:px-5">
         <h2 className="arizona-heading text-[44px] leading-none">Trusted by trailblazers</h2>
         <div className="mt-10 grid gap-5 md:grid-cols-2">
-          {["Darshan Mandade", "Scout Operator"].map((name) => (
-            <div key={name} className="bg-[#f2f0e5] p-8">
+          {testimonials.map((testimonial) => (
+            <div key={testimonial.name} className="bg-[#f2f0e5] p-8">
               <p className="mb-10 max-w-md text-xl leading-8 text-black/70">
-                Scout makes agent work visible in the same channels where product and engineering decisions happen.
+                {testimonial.quote}
               </p>
               <div className="flex items-center gap-4">
-                <div className="size-12 rounded-full bg-[#c9c4b2]" />
+                <Image
+                  src={testimonial.image}
+                  alt={testimonial.name}
+                  width={48}
+                  height={48}
+                  className="size-12 rounded-full object-cover"
+                />
                 <div>
-                  <p>{name}</p>
-                  <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-black/55">Builder at Scout</p>
+                  <p>{testimonial.name}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-black/55">
+                    {testimonial.role}
+                  </p>
                 </div>
               </div>
             </div>
@@ -487,7 +516,7 @@ export default function RelaceInspiredLandingPage() {
           </div>
           <div className="flex gap-4 md:justify-end">
             <ButtonLink href="/signup" tone="primary">GET A DEMO</ButtonLink>
-            <ButtonLink href="/signup">SIGN UP FOR FREE</ButtonLink>
+            <ButtonLink href="/docs">READ DOCS</ButtonLink>
           </div>
         </div>
         <Landscape
@@ -502,13 +531,13 @@ export default function RelaceInspiredLandingPage() {
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <Logo />
           <div className="flex gap-10 text-xs font-medium">
-            <Link href="#">Y COMBINATOR</Link>
-            <Link href="#">ABOUT US</Link>
-            <Link href="#">EMAIL US</Link>
+            <Link href="/relace/about">ABOUT US</Link>
+            <Link href="#">BLOG</Link>
+            <Link href="#">CONTACT</Link>
           </div>
-          <div className="flex gap-4 text-xl">
-            <span>X</span>
-            <span className="text-sm font-bold">in</span>
+          <div className="flex items-center gap-3 text-black">
+            <span className="grid size-8 place-items-center text-[18px] leading-none">X</span>
+            <span className="grid size-8 place-items-center text-[18px] font-semibold leading-none">in</span>
           </div>
         </div>
         <div className="mt-8 flex justify-between border-t border-black/8 pt-6 text-[11px] text-black/38">

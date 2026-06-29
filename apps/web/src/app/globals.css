@@ -315,6 +315,68 @@
   animation: status-pulse 1.5s ease-in-out infinite;
 }
 
+.arizona-heading {
+  font-family: var(--font-abc-arizona-flare), 'ABC Arizona Flare Variable', 'ABC Arizona Flare', 'ABC Arizona', 'Arizona', 'Iowan Old Style', Georgia, serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  letter-spacing: -0.055em;
+}
+
+@keyframes scout-agent-dot {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes scout-review-pill {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+
+@keyframes scout-chat-message {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  10%,
+  82% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+}
+
+.scout-agent-dot {
+  animation: scout-agent-dot 1.9s ease-in-out infinite;
+}
+
+.scout-review-pill {
+  animation: scout-review-pill 2.8s ease-in-out infinite;
+}
+
+.scout-mock-window {
+  border-radius: 12px;
+}
+
+.scout-chat-message {
+  opacity: 0;
+  animation: scout-chat-message 9.2s ease-in-out infinite both;
+}
+
 /* ── Markdown message styling (aligned with Minttr .markdown-card) ── */
 .prose-message {
   overflow-wrap: anywhere;

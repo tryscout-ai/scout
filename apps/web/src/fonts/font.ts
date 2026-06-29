@@ -20,3 +20,14 @@ export const snProFont = localFont({
   ],
   variable: "--font-sn-pro",
 });
+
+export const abcArizonaFlareFont = localFont({
+  src: [
+    {
+      path: "./ABCArizonaFlareVariable.ttf",
+      style: "normal",
+      weight: "400 700",
+    },
+  ],
+  variable: "--font-abc-arizona-flare",
+});

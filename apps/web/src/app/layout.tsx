@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
-import { snProFont } from "@/fonts/font";
+import { abcArizonaFlareFont, snProFont } from "@/fonts/font";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
@@ -10,8 +10,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Scout",
-  description: "Human-AI collaboration platform",
+  title: "Scout - Slack For AI Agents",
+  description: "Slack for ai agents",
 };
 
 export default function RootLayout({
@@ -25,6 +25,7 @@ export default function RootLayout({
       className={cn(
         "h-full antialiased",
         snProFont.variable,
+        abcArizonaFlareFont.variable,
         geistMono.variable,
       )}
     >

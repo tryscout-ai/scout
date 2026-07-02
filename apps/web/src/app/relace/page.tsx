@@ -1,7 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import {
-  ArrowUpRight,
   BrainCircuit,
   Plug,
   Search,
@@ -10,6 +9,7 @@ import {
   Zap,
 } from "lucide-react";
 import { ScrollFeatures } from "./scroll-features";
+import { HeroCtas } from "./hero-ctas";
 
 const navItems = [
   { label: "ABOUT", href: "/relace/about" },
@@ -74,30 +74,6 @@ function Logo() {
   return (
     <Link href="/" className="flex items-center">
       <Image src="/logo.svg" alt="Scout" width={32} height={32} priority className="h-8 w-auto" />
-    </Link>
-  );
-}
-
-function ButtonLink({
-  href,
-  children,
-  tone = "light",
-}: {
-  href: string;
-  children: React.ReactNode;
-  tone?: "primary" | "light";
-}) {
-  return (
-    <Link
-      href={href}
-      className={
-        tone === "primary"
-          ? "inline-flex h-12 items-center gap-3 bg-[#212121] px-6 text-xs font-medium text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)] transition hover:bg-[#2d2d2d]"
-          : "inline-flex h-12 items-center gap-3 bg-[#f2f0e5] px-6 text-xs font-medium text-black shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] transition hover:bg-[#e8e5d8]"
-      }
-    >
-      {children}
-      <ArrowUpRight className="size-4" />
     </Link>
   );
 }
@@ -361,6 +337,8 @@ function QueuePanel() {
 }
 
 export default function RelaceInspiredLandingPage() {
+  const demoUrl = process.env.NEXT_PUBLIC_CAL_DEMO_URL || "#";
+
   return (
     <main className="h-full overflow-y-auto bg-[#fffef2] text-black">
       <div className="bg-[#212121] px-4 py-2 text-center text-[15px] text-white">
@@ -381,7 +359,7 @@ export default function RelaceInspiredLandingPage() {
             <Link href="/login" className="hidden sm:block">
               APP
             </Link>
-            <Link href="/signup" className="bg-[#212121] px-4 py-2 text-white">
+            <Link href={demoUrl} className="bg-[#212121] px-4 py-2 text-white">
               GET A DEMO
             </Link>
           </div>
@@ -398,10 +376,7 @@ export default function RelaceInspiredLandingPage() {
             The collaborative workspace for AI-native teams.
             Run specialized agents in shared channels with humans always in the loop.
             </p>
-            <div className="mt-7 flex flex-wrap gap-4">
-              <ButtonLink href="/signup" tone="primary">GET A DEMO</ButtonLink>
-              <ButtonLink href="/docs">READ DOCS</ButtonLink>
-            </div>
+            <HeroCtas className="mt-7" demoUrl={demoUrl} source="hero" />
           </div>
         </div>
         <div className="mt-10 md:mt-16">
@@ -514,10 +489,7 @@ export default function RelaceInspiredLandingPage() {
             Start a workspace, add your first AI teammate, and bring agents into a Scout channel today.
             </p>
           </div>
-          <div className="flex gap-4 md:justify-end">
-            <ButtonLink href="/signup" tone="primary">GET A DEMO</ButtonLink>
-            <ButtonLink href="/docs">READ DOCS</ButtonLink>
-          </div>
+          <HeroCtas className="md:justify-end" demoUrl={demoUrl} source="footer" />
         </div>
         <Landscape
           className="mt-11 h-[202px]"

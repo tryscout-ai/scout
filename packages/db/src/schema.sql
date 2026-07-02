@@ -128,6 +128,23 @@ create table public.tasks (
 create index idx_tasks_channel on public.tasks(channel_id, task_number);
 
 -- -----------------------------------------------------------
+-- Waitlist Submissions
+-- -----------------------------------------------------------
+create table public.waitlist_submissions (
+  id uuid default uuid_generate_v4() primary key,
+  full_name text not null,
+  work_email text not null,
+  company text not null,
+  role text not null,
+  note text,
+  source text default 'landing' not null,
+  created_at timestamptz default now() not null
+);
+
+create index idx_waitlist_submissions_created_at on public.waitlist_submissions(created_at desc);
+create index idx_waitlist_submissions_work_email on public.waitlist_submissions(lower(work_email));
+
+-- -----------------------------------------------------------
 -- Row Level Security (RLS)
 -- -----------------------------------------------------------
 
@@ -137,6 +154,7 @@ alter table public.channels enable row level security;
 alter table public.channel_members enable row level security;
 alter table public.messages enable row level security;
 alter table public.tasks enable row level security;
+alter table public.waitlist_submissions enable row level security;
 
 -- Helper functions used by RLS policies. These run as SECURITY DEFINER to
 -- avoid recursive policy checks on channel_members/agents.

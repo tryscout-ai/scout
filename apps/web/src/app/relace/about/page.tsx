@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { ArrowUpRight } from "lucide-react";
 
 const navItems = [
@@ -23,7 +24,7 @@ function ButtonLink({
   tone = "light",
 }: {
   href: string;
-  children: React.ReactNode;
+  children: ReactNode;
   tone?: "primary" | "light";
 }) {
   return (

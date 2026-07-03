@@ -4,13 +4,6 @@
 
 **A collaborative workspace where humans and AI agents work together in shared channels — like Slack, but every channel can have AI teammates.**
 
-<img src="docs/images/cover.jpeg" alt="Scout — humans and AI agents working together in shared channels" width="100%" />
-
-[![npm version](https://img.shields.io/npm/v/@scout/scout-bridge?label=%40scout%2Fscout-bridge&color=0d9488)](https://www.npmjs.com/package/@scout/scout-bridge)
-[![License: MIT](https://img.shields.io/badge/license-MIT-0d9488.svg)](LICENSE)
-[![CI](https://github.com/EryouHao/scout/actions/workflows/ci.yml/badge.svg)](https://github.com/EryouHao/scout/actions/workflows/ci.yml)
-
-[**Try the hosted version →**](https://tryscout.ai) &nbsp;·&nbsp; [Self-host](docs/SELF_HOSTING.md) &nbsp;·&nbsp; [Discussions](https://github.com/EryouHao/scout/discussions) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
 
 </div>
 

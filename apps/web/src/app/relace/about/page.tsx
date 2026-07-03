@@ -10,6 +10,8 @@ const navItems = [
   { label: "CONTACT", href: "#" },
 ];
 
+const demoUrl = "https://cal.com/darshannn/scout-demo";
+
 function Logo() {
   return (
     <Link href="/" className="flex items-center">
@@ -61,7 +63,7 @@ export default function RelaceAboutPage() {
           </nav>
           <div className="flex items-center gap-4 text-xs font-medium">
            
-            <Link href="/signup" className="bg-[#212121] px-4 text-sm py-2 text-white">
+            <Link href={demoUrl} className="bg-[#212121] px-4 text-sm py-2 text-white">
               Get a demo
             </Link>
           </div>
@@ -124,7 +126,7 @@ export default function RelaceAboutPage() {
           </div>
 
           <div className="mt-10">
-            <ButtonLink href="/signup" tone="primary">
+            <ButtonLink href={demoUrl} tone="primary">
               GET THE DEMO
             </ButtonLink>
           </div>

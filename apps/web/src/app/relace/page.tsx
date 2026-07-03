@@ -337,7 +337,8 @@ function QueuePanel() {
 }
 
 export default function RelaceInspiredLandingPage() {
-  const demoUrl = process.env.NEXT_PUBLIC_CAL_DEMO_URL || "#";
+  const demoUrl =
+    process.env.NEXT_PUBLIC_CAL_DEMO_URL || "https://cal.com/darshannn/scout-demo";
 
   return (
     <main className="h-full overflow-y-auto bg-[#fffef2] text-black">

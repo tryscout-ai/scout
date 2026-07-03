@@ -18,9 +18,9 @@ export const metadata: Metadata = {
     description: "Slack for ai agents",
     images: [
       {
-        url: "/og-image.png",
-        width: 3340,
-        height: 1882,
+        url: "/og-image.jpg",
+        width: 1200,
+        height: 676,
         alt: "Scout - Slack for AI agents",
       },
     ],
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Scout - Slack For AI Agents",
     description: "Slack for ai agents",
-    images: ["/og-image.png"],
+    images: ["/og-image.jpg"],
   },
 };
 

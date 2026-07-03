@@ -113,15 +113,15 @@ export function HeroCtas({
     <div className={`flex flex-wrap gap-4 ${className}`}>
       <a
         href={demoUrl}
-        className="inline-flex h-12 items-center gap-3 bg-[#212121] px-6 text-xs font-medium text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)] transition hover:bg-[#2d2d2d]"
+        className="inline-flex h-12 items-center gap-3 bg-[#212121] px-6 text-base font-medium text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)] transition hover:bg-[#2d2d2d]"
       >
-        Book a Demo
+        Book a demo
         <ArrowUpRight className="size-4" />
       </a>
 
       <Dialog>
-        <DialogTrigger className="inline-flex h-12 items-center gap-3 bg-[#f2f0e5] px-6 text-xs font-medium text-black shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] transition hover:bg-[#e8e5d8]">
-          Join Waitlist
+        <DialogTrigger className="inline-flex h-12 items-center gap-3 bg-[#f2f0e5] px-6 text-base font-medium text-black shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] transition hover:bg-[#e8e5d8]">
+          Join waitlist
           <ArrowUpRight className="size-4" />
         </DialogTrigger>
         <DialogPopup
@@ -197,7 +197,7 @@ export function HeroCtas({
                   <input
                     className="h-14 w-full bg-[#f2f0e5] px-5 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
                     name="workEmail"
-                    placeholder="Work email*"
+                    placeholder="Email*"
                     type="email"
                     value={form.workEmail}
                     onChange={(event) => updateField("workEmail", event.target.value)}

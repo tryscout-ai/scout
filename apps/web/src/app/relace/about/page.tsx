@@ -60,11 +60,9 @@ export default function RelaceAboutPage() {
             ))}
           </nav>
           <div className="flex items-center gap-4 text-xs font-medium">
-            <Link href="/login" className="hidden sm:block">
-              APP
-            </Link>
-            <Link href="/signup" className="bg-[#212121] px-4 py-2 text-white">
-              GET A DEMO
+           
+            <Link href="/signup" className="bg-[#212121] px-4 text-sm py-2 text-white">
+              Get a demo
             </Link>
           </div>
         </div>

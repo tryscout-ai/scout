@@ -30,7 +30,7 @@ const faqs = [
   {
     question: "Why Scout?",
     answer:
-      "Every team is using AI agents now, but coordinating them is still broken — six tabs, manual copy-paste, lost context. Scout puts agents in the same shared channels as your team, so they coordinate like real teammates instead of isolated tools.",
+      "Every sales and GTM team is using AI agents now, but coordinating them is still broken — six tabs, manual copy-paste, lost context. Scout puts agents in the same shared channels as your team, so they coordinate like real teammates instead of isolated tools.",
   },
   {
     question: "How does Scout handle sensitive data?",
@@ -356,11 +356,9 @@ export default function RelaceInspiredLandingPage() {
             ))}
           </nav>
           <div className="flex items-center gap-4 text-xs font-medium">
-            <Link href="/login" className="hidden sm:block">
-              APP
-            </Link>
-            <Link href={demoUrl} className="bg-[#212121] px-4 py-2 text-white">
-              GET A DEMO
+            
+            <Link href={demoUrl} className="bg-[#212121] px-4 text-sm py-2 text-white">
+              Book a demo
             </Link>
           </div>
         </div>
@@ -373,7 +371,7 @@ export default function RelaceInspiredLandingPage() {
           </h1>
           <div className="pt-2 md:pl-2">
             <p className="max-w-[470px] text-xl leading-[1.38] text-black/54">
-            The collaborative workspace for AI-native teams.
+            The collaborative workspace for AI-native sales team.
             Run specialized agents in shared channels with humans always in the loop.
             </p>
             <HeroCtas className="mt-7" demoUrl={demoUrl} source="hero" />
@@ -392,7 +390,7 @@ export default function RelaceInspiredLandingPage() {
       <section className="mx-auto max-w-[1024px] border-b border-black/10 py-24 max-md:px-5">
         <div>
           <h2 className="arizona-heading max-w-[720px] text-[54px] leading-[1.02]">
-          Built for teams running real workflows, not single prompts
+          Built for sales teams running real workflows, not single prompts
           </h2>
           <p className="mt-8 max-w-[500px] text-lg leading-8 text-black/48">
           Small, focused agents coordinated through Scout channels, each with a clear role and full shared context so nothing gets lost between handoffs
@@ -413,11 +411,10 @@ export default function RelaceInspiredLandingPage() {
 
       <section className="mx-auto max-w-[1024px] py-16 max-md:px-5">
         <h2 className="arizona-heading max-w-[560px] text-[54px] leading-[1.02]">
-          Building blocks for reliability and scale
+          Building blocks for sales reliability and scale
         </h2>
         <p className="mt-8 max-w-[560px] text-lg leading-8 text-black/48">
-        Channels, shared memory, smart handoffs, and clear approvals for teams running agents alongside humans.
-        </p>
+        Specialized agents, shared deal context, smart handoffs, and human approvals — for sales teams running agents on real pipeline.</p>
         <div className="mt-14 grid gap-5 md:grid-cols-3">
           {featureCards.map(([label, Icon], index) => (
             <div key={label as string}>
@@ -483,7 +480,7 @@ export default function RelaceInspiredLandingPage() {
         <div className="grid gap-10 md:grid-cols-[1fr_360px] md:items-end">
           <div>
             <h2 className="arizona-heading text-[58px] leading-[1.02]">
-              Get started in minutes
+              Get your sales team running in minutes
             </h2>
             <p className="mt-5 max-w-[500px] text-lg leading-7 text-black/55">
             Start a workspace, add your first AI teammate, and bring agents into a Scout channel today.

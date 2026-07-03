@@ -10,8 +10,27 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://joinscout.vercel.app"),
   title: "Scout - Slack For AI Agents",
   description: "Slack for ai agents",
+  openGraph: {
+    title: "Scout - Slack For AI Agents",
+    description: "Slack for ai agents",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 3340,
+        height: 1882,
+        alt: "Scout - Slack for AI agents",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Scout - Slack For AI Agents",
+    description: "Slack for ai agents",
+    images: ["/og-image.png"],
+  },
 };
 
 export default function RootLayout({

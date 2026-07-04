@@ -1,11 +1,12 @@
 import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
-import { join, resolve, dirname } from "path";
+import { join, resolve, dirname, delimiter } from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "node:module";
 import { spawn, ChildProcess } from "child_process";
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { normalizeLegacyBranding } from "./branding.js";
 import { buildSystemPrompt } from "./system-prompt.js";
+import { spawnSync } from "child_process";
 
 type AgentActivity = "idle" | "thinking" | "working" | "error";
 
@@ -357,6 +358,7 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
     this.broadcastActivity(agentId, "working", "Working", "Message received");
 
     if (agentProc.runner === "codex") {
+      console.log("ABOUT TO CALL runCodexTurn");
       return this.runCodexTurn(agentId, agentProc, session, userMessage);
     }
 
@@ -663,6 +665,7 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
     session: AgentSession,
     userMessage: string
   ): Promise<string> {
+    console.log("ENTERED runCodexTurn");
     const memoryPath = join(session.workDir, "MEMORY.md");
     const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
 
@@ -683,7 +686,6 @@ Return the exact message that should appear in chat as your final answer.
 
 ${userMessage}`;
       const args = [
-        "--search",
         "exec",
         "--skip-git-repo-check",
         "--json",
@@ -694,11 +696,45 @@ ${userMessage}`;
         session.workDir,
       ];
 
-      console.log(`  [${session.displayName}] Spawning Codex exec (one-shot turn)...`);
+      console.log("PATH =", process.env.PATH);
 
-      const turnProc = spawn("codex", args, {
-        cwd: session.workDir,
-        env: {
+const { spawnSync } = await import("child_process");
+
+const test = spawnSync("codex", ["--version"], {
+  shell: true,
+  encoding: "utf8",
+});
+
+console.log("STATUS =", test.status);
+console.log("STDOUT =", test.stdout);
+console.log("STDERR =", test.stderr);
+console.log("ERROR =", test.error);
+console.log("PLATFORM =", process.platform);
+console.log("EXECUTABLE = codex");
+
+      const spawnPath = [
+  join(session.workDir, ".scout"),
+  process.env.PATH ?? "",
+].join(delimiter);
+
+console.log("SPAWN PATH =", spawnPath);
+const test2 = spawnSync("where", ["codex"], {
+  shell: true,
+  encoding: "utf8",
+  env: {
+    ...process.env,
+    PATH: spawnPath,
+  },
+});
+
+console.log("WHERE STATUS =", test2.status);
+console.log("WHERE OUT =", test2.stdout);
+console.log("WHERE ERR =", test2.stderr);
+console.time("codex-turn");
+const turnProc = spawn("codex", args, {
+  shell: true,
+  cwd: session.workDir,
+  env: {
           ...process.env,
           FORCE_COLOR: "0",
           NO_COLOR: "1",
@@ -706,17 +742,31 @@ ${userMessage}`;
           SCOUT_SUPABASE_URL: this.supabaseUrl,
           SCOUT_SUPABASE_KEY: this.supabaseKey,
           SCOUT_AUTH_TOKEN: this.authToken,
-          PATH: `${join(session.workDir, ".scout")}:${process.env.PATH ?? ""}`,
+          PATH: [
+            join(session.workDir, ".scout"),
+            process.env.PATH ?? "",
+          ].join(delimiter),
         },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+  stdio: ["pipe", "pipe", "pipe"],
+});
+turnProc.on("spawn", () => {
+  console.log("CHILD SPAWNED");
+});
+turnProc.stderr.on("data", d => {
+  console.log("SPAWN ERR:", d.toString());
+});
       turnProc.stdin?.on("error", (err: Error & { code?: string }) => {
         if (err.code !== "EPIPE") {
           console.error(`  [${session.displayName}] stdin error: ${err.message}`);
         }
       });
-      turnProc.stdin?.end(prompt);
-
+      console.log("PROMPT SIZE =", prompt.length);
+      console.log("SYSTEM PROMPT SIZE =", systemPrompt.length);
+      console.log("MEMORY SIZE =", memoryContext.length);
+turnProc.stdin?.end(prompt);
+turnProc.stdout.on("data", (chunk) => {
+  console.log("STDOUT CHUNK", Date.now());
+});
       let stdoutBuffer = "";
       let finalText = "";
 
@@ -784,6 +834,12 @@ ${userMessage}`;
             agentProc.busy = false;
             this.broadcastActivity(agentId, "idle", "Idle", "");
             this.drainQueue(agentId, agentProc);
+            console.timeEnd("codex-turn");
+            console.log(
+  "RESOLVING TO CHAT",
+  Date.now(),
+  finalText.length
+);
             resolve(finalText.trim());
           });
         });
@@ -819,6 +875,11 @@ ${userMessage}`;
         this.broadcastActivity(agentId, "thinking", "Thinking", "");
         break;
       case "item.completed":
+        console.log(
+  "AGENT MESSAGE RECEIVED",
+  Date.now(),
+  event.item?.text?.length
+);
         if (event.item?.type === "agent_message" && event.item?.text) {
           finalText = event.item.text;
           this.broadcastActivity(agentId, "working", "", event.item.text);

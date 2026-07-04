@@ -1,6 +1,6 @@
 {
-  "name": "@scout/scout-bridge",
-  "version": "0.1.5",
+  "name": "@scout-ai/scout-bridge",
+  "version": "0.2.7",
   "description": "Scout local bridge — connects your Claude Code agents to Scout",
   "type": "module",
   "bin": {
@@ -24,8 +24,9 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@scout/scout-cli": "^0.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@scout-ai/scout-bridge": "^0.2.3",
+    "@scout-ai/scout-cli": "^0.1.0",
     "@supabase/supabase-js": "^2.104.1",
     "zod": "^4.3.6"
   },

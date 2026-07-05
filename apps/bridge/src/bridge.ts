@@ -370,8 +370,8 @@ console.timeEnd("supabase-insert");
   }
 
   private async handleNewMessage(msg: DbMessage) {
-    // Only respond to human messages
-    if (msg.sender_type !== "human") return;
+    // Humans and agents can invoke agents. System messages are informational.
+    if (msg.sender_type === "system") return;
 
     // Check if any of our agents are in this channel
     const agentIdsInChannel = this.channelAgents.get(msg.channel_id);
@@ -384,8 +384,16 @@ console.timeEnd("supabase-insert");
     let respondingAgentIds: Set<string>;
 
     if (isDm) {
-      // DM: always respond with the single agent
-      respondingAgentIds = agentIdsInChannel;
+      // DM: humans get the single agent; agent DMs require an explicit mention.
+      if (msg.sender_type === "human") {
+        respondingAgentIds = agentIdsInChannel;
+      } else {
+        const mentioned = this.parseMentionedAgents(
+          msg.content,
+          agentIdsInChannel
+        );
+        respondingAgentIds = mentioned;
+      }
     } else {
       // Channel: only respond if @mentioned
       const mentioned = this.parseMentionedAgents(
@@ -400,6 +408,18 @@ console.timeEnd("supabase-insert");
         return;
       }
       respondingAgentIds = mentioned;
+    }
+
+    // Never feed an agent its own message back as a new assignment.
+    if (msg.sender_type === "agent") {
+      respondingAgentIds.delete(msg.sender_id);
+    }
+
+    if (respondingAgentIds.size === 0) {
+      console.log(
+        `  [Bridge] No actionable @mention for this bridge, skipping.`
+      );
+      return;
     }
 
     // Resolve sender name for message context

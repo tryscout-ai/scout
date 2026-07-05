@@ -261,8 +261,10 @@ export function Sidebar({
           );
         }
       )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
+      .subscribe();
+
+      // (status) => {
+      //   if (status === "SUBSCRIBED") {
           // WebSocket is fully established — now safe to subscribe to Presence
           presenceChannel = supabase.channel(`bridge-presence:${serverId}`);
           presenceChannel
@@ -270,8 +272,8 @@ export function Sidebar({
             .on("presence", { event: "join" }, refreshPresence)
             .on("presence", { event: "leave" }, refreshPresence)
             .subscribe();
-        }
-      });
+      //   }
+      // }
 
     // Heartbeat polling fallback: check last_used_at every 15s
     async function checkHeartbeat() {

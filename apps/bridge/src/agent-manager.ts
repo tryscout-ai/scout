@@ -16,6 +16,7 @@ const __dirname = dirname(__filename);
 const ACTIVITY_HEARTBEAT_MS = 60_000; // Re-broadcast active state every 60s
 const CODEX_TURN_TIMEOUT_MS = Number(process.env.SCOUT_CODEX_TURN_TIMEOUT_MS || 300_000);
 const AGENT_RUNNER = (process.env.SCOUT_AGENT_RUNNER || "codex").toLowerCase();
+const CODEX_COMMAND = process.env.SCOUT_CODEX_COMMAND || "codex";
 
 interface AgentRecord {
   id: string;
@@ -696,77 +697,36 @@ ${userMessage}`;
         session.workDir,
       ];
 
-      console.log("PATH =", process.env.PATH);
-
-const { spawnSync } = await import("child_process");
-
-const test = spawnSync("codex", ["--version"], {
-  shell: true,
-  encoding: "utf8",
-});
-
-console.log("STATUS =", test.status);
-console.log("STDOUT =", test.stdout);
-console.log("STDERR =", test.stderr);
-console.log("ERROR =", test.error);
-console.log("PLATFORM =", process.platform);
-console.log("EXECUTABLE = codex");
-
       const spawnPath = [
-  join(session.workDir, ".scout"),
-  process.env.PATH ?? "",
-].join(delimiter);
+        join(session.workDir, ".scout"),
+        process.env.PATH ?? "",
+      ].join(delimiter);
+      const runnerEnv = {
+        ...process.env,
+        FORCE_COLOR: "0",
+        NO_COLOR: "1",
+        SCOUT_AGENT_ID: agentId,
+        SCOUT_SUPABASE_URL: this.supabaseUrl,
+        SCOUT_SUPABASE_KEY: this.supabaseKey,
+        SCOUT_AUTH_TOKEN: this.authToken,
+        PATH: spawnPath,
+      };
 
-console.log("SPAWN PATH =", spawnPath);
-const test2 = spawnSync("where", ["codex"], {
-  shell: true,
-  encoding: "utf8",
-  env: {
-    ...process.env,
-    PATH: spawnPath,
-  },
-});
+      this.assertCodexAvailable(runnerEnv);
 
-console.log("WHERE STATUS =", test2.status);
-console.log("WHERE OUT =", test2.stdout);
-console.log("WHERE ERR =", test2.stderr);
-console.time("codex-turn");
-const turnProc = spawn("codex", args, {
-  shell: true,
-  cwd: session.workDir,
-  env: {
-          ...process.env,
-          FORCE_COLOR: "0",
-          NO_COLOR: "1",
-          SCOUT_AGENT_ID: agentId,
-          SCOUT_SUPABASE_URL: this.supabaseUrl,
-          SCOUT_SUPABASE_KEY: this.supabaseKey,
-          SCOUT_AUTH_TOKEN: this.authToken,
-          PATH: [
-            join(session.workDir, ".scout"),
-            process.env.PATH ?? "",
-          ].join(delimiter),
-        },
-  stdio: ["pipe", "pipe", "pipe"],
-});
-turnProc.on("spawn", () => {
-  console.log("CHILD SPAWNED");
-});
-turnProc.stderr.on("data", d => {
-  console.log("SPAWN ERR:", d.toString());
-});
+      console.time("codex-turn");
+      const turnProc = spawn(CODEX_COMMAND, args, {
+        cwd: session.workDir,
+        env: runnerEnv,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
       turnProc.stdin?.on("error", (err: Error & { code?: string }) => {
         if (err.code !== "EPIPE") {
           console.error(`  [${session.displayName}] stdin error: ${err.message}`);
         }
       });
-      console.log("PROMPT SIZE =", prompt.length);
-      console.log("SYSTEM PROMPT SIZE =", systemPrompt.length);
-      console.log("MEMORY SIZE =", memoryContext.length);
-turnProc.stdin?.end(prompt);
-turnProc.stdout.on("data", (chunk) => {
-  console.log("STDOUT CHUNK", Date.now());
-});
+      turnProc.stdin?.end(prompt);
       let stdoutBuffer = "";
       let finalText = "";
 
@@ -835,11 +795,6 @@ turnProc.stdout.on("data", (chunk) => {
             this.broadcastActivity(agentId, "idle", "Idle", "");
             this.drainQueue(agentId, agentProc);
             console.timeEnd("codex-turn");
-            console.log(
-  "RESOLVING TO CHAT",
-  Date.now(),
-  finalText.length
-);
             resolve(finalText.trim());
           });
         });
@@ -852,6 +807,29 @@ turnProc.stdout.on("data", (chunk) => {
       this.drainQueue(agentId, agentProc);
       throw err instanceof Error ? err : new Error(message);
     }
+  }
+
+  private assertCodexAvailable(env: NodeJS.ProcessEnv) {
+    const result = spawnSync(CODEX_COMMAND, ["--version"], {
+      encoding: "utf8",
+      env,
+    });
+
+    if (result.status === 0) {
+      return;
+    }
+
+    const stderr = result.stderr?.trim();
+    const stdout = result.stdout?.trim();
+    const detail = result.error?.message || stderr || stdout || "unknown error";
+
+    if (/ENOENT|Missing optional dependency|not found|not recognized/i.test(detail)) {
+      throw new Error(
+        `Codex CLI is unavailable or its native binary is missing. Reinstall it with "npm install -g @openai/codex@latest", or set SCOUT_AGENT_RUNNER=claude to use Claude Code. Details: ${detail}`
+      );
+    }
+
+    throw new Error(`Codex CLI check failed: ${detail}`);
   }
 
   private handleCodexStreamEvent(

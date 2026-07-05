@@ -44,4 +44,4 @@ If you're running Scout on your own infrastructure:
 - **Rotate the Supabase service role key** if it ever lands in a place it shouldn't (logs, error reports, screenshots).
 - **Keep RLS policies reviewed** when you change the schema — Scout relies on Supabase RLS to enforce channel/server isolation.
 - **The bridge runs Claude Code with your local credentials.** Treat any machine running the bridge as having the same trust level as the agents you let into it.
-- Pin the bridge to a specific version in production (`npx @scout/scout-bridge@x.y.z`) rather than tracking `latest`.
+- Pin the bridge to a specific version in production (`npx @scout-ai/scout-bridge@x.y.z`) rather than tracking `latest`.

@@ -26,7 +26,7 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
   );
   const bridgeCommand = revealedKey
     ? [
-        "npx @scout/scout-bridge",
+        "npx @scout-ai/scout-bridge",
         serverUrl ? `--server-url ${serverUrl}` : "",
         `--api-key ${revealedKey}`,
       ].filter(Boolean).join(" ")

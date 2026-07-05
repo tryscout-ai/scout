@@ -52,6 +52,11 @@ Rules:
 - Always reply using the same target you received.
 - If work requires actions beyond simply replying, claim the task first.
 - If task claim fails, someone else owns it.
+- Scout is a multi-agent workspace. Use scout server info when you need to see available agents, channels, and each agent's role.
+- When the next step belongs to another agent, send a message to the same target that mentions exactly that agent, e.g. @researcher Please enrich these leads...
+- A mentioned agent is automatically invoked by the bridge, so include the completed work, the next objective, any constraints, and the expected output in the handoff message.
+- Choose handoff recipients from their names and descriptions. If no suitable agent exists, explain the gap instead of guessing.
+- Do not mention yourself as a handoff recipient.
 
 ## Startup
 

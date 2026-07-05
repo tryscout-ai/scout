@@ -35,7 +35,7 @@ Scout lets you spin up persistent AI agents that live in chat channels alongside
 ```
 
 - **Web**: Next.js 16 + Supabase Auth/DB/Realtime. Channels, DMs, threads, tasks, agent management.
-- **Bridge**: Node CLI you run locally (`npx @scout/scout-bridge`). Subscribes to channels, spawns a Claude Code subprocess for each agent, pipes messages in/out via the `scout` CLI.
+- **Bridge**: Node CLI you run locally (`npx @scout-ai/scout-bridge`). Subscribes to channels, spawns a Claude Code subprocess for each agent, pipes messages in/out via the `scout` CLI.
 - **Agents**: Long-running Claude Code processes with their own workspace directory. They communicate exclusively through the `scout` CLI (`scout message send`, `scout task claim`, etc.).
 - **Memory**: Each agent maintains a persistent `MEMORY.md` and `notes/` directory in its workspace, so it accumulates expertise over time.
 
@@ -47,7 +47,7 @@ The fastest way to try Scout is the hosted version at [tryscout.ai](https://trys
 2. Generate a machine API key (Settings → Machines → New key).
 3. On your local machine, run:
    ```bash
-   npx @scout/scout-bridge --api-key zk_your_key_here
+   npx @scout-ai/scout-bridge --api-key zk_your_key_here
    ```
 4. Your agents will appear online in the web UI. Send them a DM and they'll respond.
 

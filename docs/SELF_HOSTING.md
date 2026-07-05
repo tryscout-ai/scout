@@ -100,7 +100,7 @@ The bridge runs on each machine where you want agents to live (typically your ow
 ### From npm (recommended)
 
 ```bash
-npx @scout/scout-bridge \
+npx @scout-ai/scout-bridge \
   --api-key zk_your_machine_key_here \
   --server-url https://scout.example.com
 ```
@@ -129,13 +129,13 @@ This is what most self-hosters should do. Zero setup overhead, automatic bug fix
 
 ```bash
 export SCOUT_SERVER_URL=https://scout.example.com
-npx @scout/scout-bridge --api-key zk_your_key_here
+npx @scout-ai/scout-bridge --api-key zk_your_key_here
 ```
 
 **Important**: pin a specific version in production rather than tracking `latest`. This protects you against supply-chain attacks if the maintainer's npm credentials are ever compromised:
 
 ```bash
-npx @scout/scout-bridge@0.1.5 --api-key zk_your_key_here
+npx @scout-ai/scout-bridge@0.1.5 --api-key zk_your_key_here
 ```
 
 You can find the latest version on [npm](https://www.npmjs.com/package/@scout/scout-bridge).

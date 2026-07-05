@@ -11,8 +11,8 @@
     "db:push": "pnpm --filter @scout/db push"
   },
   "devDependencies": {
-    "turbo": "^2.5.0",
-    "typescript": "^5.8.0"
+    "@types/node": "^26.1.0",
+    "turbo": "^2.5.0"
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {

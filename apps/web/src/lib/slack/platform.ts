@@ -25,6 +25,18 @@ interface SlackApiResponse {
   error?: string;
 }
 
+function slackManifestErrorMessage(error?: string) {
+  if (error === "invalid_auth" || error === "token_expired") {
+    return "SCOUT_SLACK_APP_CONFIG_TOKEN was rejected by Slack. Refresh the Slack app configuration token in apps/web/.env.local, then restart pnpm dev:web.";
+  }
+
+  if (error === "not_allowed_token_type") {
+    return "SCOUT_SLACK_APP_CONFIG_TOKEN is the wrong Slack token type. Use the Slack app configuration token for apps.manifest.create, not a bot token or app-level token.";
+  }
+
+  return error || "Slack manifest creation failed";
+}
+
 function appUrl(path: string) {
   const base = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
   if (!base) throw new Error("Missing NEXT_PUBLIC_APP_URL");
@@ -455,6 +467,37 @@ export async function createScoutAgent(params: {
   return agent;
 }
 
+export async function deleteScoutAgent(agentId: string) {
+  const admin = createAdminClient();
+
+  const { data: memberships } = await admin
+    .from("channel_members")
+    .select("channel_id")
+    .eq("member_id", agentId)
+    .eq("member_type", "agent");
+
+  const channelIds = Array.from(new Set((memberships || []).map((membership) => membership.channel_id as string)));
+
+  if (channelIds.length > 0) {
+    const { data: dmChannels } = await admin
+      .from("channels")
+      .select("id")
+      .in("id", channelIds)
+      .eq("type", "dm");
+
+    const dmChannelIds = (dmChannels || []).map((channel) => channel.id as string);
+    if (dmChannelIds.length > 0) {
+      await admin.from("messages").delete().in("channel_id", dmChannelIds);
+      await admin.from("channel_members").delete().in("channel_id", dmChannelIds);
+      await admin.from("channels").delete().in("id", dmChannelIds);
+    }
+  }
+
+  await admin.from("channel_members").delete().eq("member_id", agentId).eq("member_type", "agent");
+  await admin.from("server_members").delete().eq("member_id", agentId).eq("member_type", "agent");
+  await admin.from("agents").delete().eq("id", agentId);
+}
+
 export async function createAgentSlackApp(params: {
   workspaceId: string;
   agentId: string;
@@ -531,21 +574,7 @@ export async function createAgentSlackApp(params: {
     oauth_authorize_url?: string;
   };
 
-  if (!body.ok) {
-    if (body.error === "token_expired") {
-      throw new Error(
-        "SCOUT_SLACK_APP_CONFIG_TOKEN expired in apps/web/.env.local. Refresh the Slack app config token, then restart pnpm dev:web."
-      );
-    }
-
-    if (body.error === "not_allowed_token_type") {
-      throw new Error(
-        "SCOUT_SLACK_APP_CONFIG_TOKEN is the wrong Slack token type. Use the Slack app configuration token for apps.manifest.create, not a bot token or app-level token."
-      );
-    }
-
-    throw new Error(body.error || "Slack manifest creation failed");
-  }
+  if (!body.ok) throw new Error(slackManifestErrorMessage(body.error));
 
   let installUrl = body.oauth_authorize_url || null;
   if (!installUrl && body.credentials?.client_id) {

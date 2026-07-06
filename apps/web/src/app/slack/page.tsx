@@ -145,12 +145,15 @@ export default function SlackPage() {
   const installedCount = (home?.agentApps || []).filter((app) => app.install_status === "installed").length;
   const mappedCount = home?.channelMappings.length || 0;
   const slackButtonLabel = home?.workspace ? "Reconnect Slack" : "Connect Slack";
+  const isLocalServer = serverUrl.includes("localhost") || serverUrl.includes("127.0.0.1");
   const slackBridgeCommand = home?.bridgeKey?.key_value
-    ? [
-        "npx @scout-ai/scout-bridge@0.1.6",
-        serverUrl ? `--server-url ${serverUrl}` : "",
-        `--api-key ${home.bridgeKey.key_value}`,
-      ].filter(Boolean).join(" ")
+    ? isLocalServer
+      ? "pnpm dev:slack:bridge"
+      : [
+          "npx @scout-ai/scout-bridge@0.1.6",
+          serverUrl ? `--server-url ${serverUrl}` : "",
+          `--api-key ${home.bridgeKey.key_value}`,
+        ].filter(Boolean).join(" ")
     : "";
 
   async function copySlackBridgeCommand() {
@@ -370,8 +373,13 @@ export default function SlackPage() {
                       {home?.bridgeKey.online ? <Badge variant="success">Online</Badge> : <Badge variant="warning">Offline</Badge>}
                     </div>
                     <p className="text-muted-foreground text-sm">
-                      Slack-native agents run from the Slack Agents server, so they need this bridge key even when another Scout bridge is online.
+                      Slack-native agents run from the Slack Agents server, so they need this bridge even when another Scout bridge is online.
                     </p>
+                    {isLocalServer && (
+                      <p className="mt-2 text-muted-foreground text-xs">
+                        Local development uses the workspace bridge script so Slack agents run the source code in this repo.
+                      </p>
+                    )}
                     <div className="mt-2 text-muted-foreground text-xs">
                       Last seen: {home?.bridgeKey.last_used_at ? new Date(home.bridgeKey.last_used_at).toLocaleString() : "Never"}
                     </div>
@@ -441,6 +449,10 @@ export default function SlackPage() {
                   <p className="mt-1 text-muted-foreground text-sm">
                     Scout creates the agent, then creates a Slack app manifest for its dedicated bot.
                   </p>
+                </div>
+                <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
+                  <span className="font-medium">Note:</span>{" "}
+                  For multi-agent coordination in Slack, install every required agent bot and onboard each one to the Slack channel where the handoff should run.
                 </div>
                 <label className="flex flex-col gap-1.5 text-sm">
                   Display name

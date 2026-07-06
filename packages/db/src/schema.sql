@@ -371,7 +371,33 @@ create policy "Channel members can view Slack message mappings" on public.slack_
   )
 );
 
+create policy "Channel members can manage Slack message mappings" on public.slack_message_mappings for all using (
+  exists (
+    select 1 from public.messages
+    where messages.id = slack_message_mappings.scout_message_id
+      and (
+        public.user_is_channel_member(messages.channel_id)
+        or public.user_has_agent_in_channel(messages.channel_id)
+      )
+  )
+) with check (
+  exists (
+    select 1 from public.messages
+    where messages.id = slack_message_mappings.scout_message_id
+      and (
+        public.user_is_channel_member(messages.channel_id)
+        or public.user_has_agent_in_channel(messages.channel_id)
+      )
+  )
+);
+
 create policy "Channel members can view agent handoffs" on public.agent_handoffs for select using (
+  public.user_is_channel_member(channel_id) or public.user_has_agent_in_channel(channel_id)
+);
+
+create policy "Channel members can manage agent handoffs" on public.agent_handoffs for all using (
+  public.user_is_channel_member(channel_id) or public.user_has_agent_in_channel(channel_id)
+) with check (
   public.user_is_channel_member(channel_id) or public.user_has_agent_in_channel(channel_id)
 );
 

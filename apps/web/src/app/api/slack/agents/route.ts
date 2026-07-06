@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   createAgentSlackApp,
   createScoutAgent,
+  deleteScoutAgent,
   ensureSlackServer,
   getSlackHome,
 } from "@/lib/slack/platform";
@@ -56,13 +57,23 @@ export async function POST(request: NextRequest) {
       model: body.model,
     });
 
-    const app = await createAgentSlackApp({
-      workspaceId: home.workspace.id,
-      agentId: agent.id,
-      appName: displayName,
-      description: body.description,
-      returnTo,
-    });
+    let app;
+    try {
+      app = await createAgentSlackApp({
+        workspaceId: home.workspace.id,
+        agentId: agent.id,
+        appName: displayName,
+        description: body.description,
+        returnTo,
+      });
+    } catch (err) {
+      try {
+        await deleteScoutAgent(agent.id);
+      } catch (cleanupErr) {
+        console.warn("[Slack] Could not roll back agent after Slack app creation failed:", cleanupErr);
+      }
+      throw err;
+    }
 
     return NextResponse.json({ agent, app });
   } catch (err) {

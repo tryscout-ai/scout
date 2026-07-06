@@ -91,6 +91,13 @@ interface SlackProgressNote {
   token: string | null;
 }
 
+interface InferredHandoffTarget {
+  agent: DbAgent;
+  reason: string;
+  summary: string;
+  nextAction: string;
+}
+
 function slackEncryptionKey() {
   const secret =
     process.env.SCOUT_SLACK_TOKEN_ENCRYPTION_KEY ||
@@ -135,6 +142,8 @@ export class Bridge {
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   // Prevent duplicate wakeups when a task insert and collaborator inserts arrive together.
   private taskDispatches = new Map<string, Set<string>>();
+  // Prevent direct reply sends and realtime self-echoes from mirroring the same reply twice.
+  private slackMirroredMessageIds = new Set<string>();
 
   constructor(config: BridgeConfig) {
     this.config = config;
@@ -392,25 +401,38 @@ export class Bridge {
 
   private async mirrorAgentReplyToSlack(msg: DbMessage) {
     if (msg.sender_type !== "agent" || !msg.thread_parent_id) return;
+    if (this.slackMirroredMessageIds.has(msg.id)) return;
 
-    const { data: existingReplyMapping } = await this.supabase
-      .from("slack_message_mappings")
-      .select("scout_message_id")
-      .eq("scout_message_id", msg.id)
-      .maybeSingle();
-
-    if (existingReplyMapping) return;
-
-    const { data } = await this.supabase
-      .from("slack_message_mappings")
-      .select("slack_team_id, slack_channel_id, slack_message_ts, slack_thread_ts")
-      .eq("scout_message_id", msg.thread_parent_id)
-      .single();
-
-    const slackRef = data as SlackMessageMapping | null;
-    if (!slackRef) return;
+    this.slackMirroredMessageIds.add(msg.id);
 
     try {
+      const { data: existingReplyMapping, error: existingReplyMappingError } = await this.supabase
+        .from("slack_message_mappings")
+        .select("scout_message_id")
+        .eq("scout_message_id", msg.id)
+        .maybeSingle();
+
+      if (existingReplyMappingError) {
+        console.warn(
+          "  [Bridge] Could not check existing Slack reply mapping:",
+          existingReplyMappingError.message
+        );
+      }
+
+      if (existingReplyMapping) return;
+
+      const { data } = await this.supabase
+        .from("slack_message_mappings")
+        .select("slack_team_id, slack_channel_id, slack_message_ts, slack_thread_ts")
+        .eq("scout_message_id", msg.thread_parent_id)
+        .single();
+
+      const slackRef = data as SlackMessageMapping | null;
+      if (!slackRef) {
+        this.slackMirroredMessageIds.delete(msg.id);
+        return;
+      }
+
       const senderName = await this.resolveSenderName(msg.sender_id, msg.sender_type);
       const slackText = `*${senderName}:*\n${msg.content}`;
       const token = await this.resolveSlackAgentToken(msg.sender_id);
@@ -422,15 +444,25 @@ export class Bridge {
       );
 
       if (slackTs) {
-        await this.supabase.from("slack_message_mappings").upsert({
+        const { error: mappingError } = await this.supabase.from("slack_message_mappings").upsert({
           scout_message_id: msg.id,
           slack_team_id: slackRef.slack_team_id,
           slack_channel_id: slackRef.slack_channel_id,
           slack_message_ts: slackTs,
           slack_thread_ts: slackRef.slack_thread_ts || slackRef.slack_message_ts,
         });
+
+        if (mappingError) {
+          console.warn(
+            "  [Bridge] Posted Slack reply but could not save reply mapping:",
+            mappingError.message
+          );
+        }
+      } else {
+        this.slackMirroredMessageIds.delete(msg.id);
       }
     } catch (err) {
+      this.slackMirroredMessageIds.delete(msg.id);
       console.error(
         "  [Bridge] Could not mirror Scout reply to Slack:",
         err instanceof Error ? err.message : err
@@ -450,6 +482,51 @@ export class Bridge {
     return decryptSlackSecret(app?.bot_access_token_encrypted);
   }
 
+  private async refreshChannelMembership(channelId: string): Promise<Set<string>> {
+    const { data: memberships, error } = await this.supabase
+      .from("channel_members")
+      .select("channel_id, member_id")
+      .eq("channel_id", channelId)
+      .eq("member_type", "agent");
+
+    if (error) {
+      console.error(
+        `  [Bridge] Could not refresh channel ${channelId} membership:`,
+        error.message
+      );
+      return this.channelAgents.get(channelId) || new Set();
+    }
+
+    const agentIds = new Set<string>();
+    for (const membership of memberships || []) {
+      const member = membership as DbChannelMember;
+      if (this.agentRecords.has(member.member_id)) {
+        agentIds.add(member.member_id);
+      }
+    }
+
+    if (agentIds.size > 0) {
+      this.channelAgents.set(channelId, agentIds);
+    } else {
+      this.channelAgents.delete(channelId);
+    }
+
+    if (!this.channelTypes.has(channelId) || !this.channelNames.has(channelId)) {
+      const { data: channel } = await this.supabase
+        .from("channels")
+        .select("name, type")
+        .eq("id", channelId)
+        .single();
+
+      if (channel) {
+        this.channelTypes.set(channelId, channel.type);
+        this.channelNames.set(channelId, channel.name);
+      }
+    }
+
+    return agentIds;
+  }
+
   private async postSlackProgressNote(task: DbTask, agentId: string, agentName: string): Promise<SlackProgressNote | null> {
     const { data } = await this.supabase
       .from("slack_message_mappings")
@@ -461,12 +538,21 @@ export class Bridge {
     if (!slackRef) return null;
 
     const token = await this.resolveSlackAgentToken(agentId);
-    const messageTs = await this.postSlack(
-      slackRef.slack_channel_id,
-      `${agentName} is starting task #${task.task_number}...`,
-      slackRef.slack_thread_ts || slackRef.slack_message_ts,
-      token
-    );
+    let messageTs: string | null = null;
+    try {
+      messageTs = await this.postSlack(
+        slackRef.slack_channel_id,
+        `${agentName} is starting task #${task.task_number}...`,
+        slackRef.slack_thread_ts || slackRef.slack_message_ts,
+        token
+      );
+    } catch (err) {
+      console.error(
+        `  [Bridge] Could not post Slack progress note for task #${task.task_number}:`,
+        err instanceof Error ? err.message : err
+      );
+      return null;
+    }
 
     if (!messageTs) return null;
     return {
@@ -769,10 +855,17 @@ export class Bridge {
         agentIdsInChannel
       );
       if (mentioned.size === 0) {
-        // No agents mentioned — don't respond
-        console.log(
-          `  [Bridge] No @mention in channel message, skipping.`
-        );
+        const { data: slackMapping } = await this.supabase
+          .from("slack_message_mappings")
+          .select("scout_message_id")
+          .eq("scout_message_id", msg.id)
+          .maybeSingle();
+
+        if (!slackMapping) {
+          console.log(
+            `  [Bridge] No @mention in channel message, skipping.`
+          );
+        }
         return;
       }
       respondingAgentIds = mentioned;
@@ -839,36 +932,67 @@ export class Bridge {
   }
 
   private async handleNewTask(task: DbTask) {
-    const agentIdsInChannel = this.channelAgents.get(task.channel_id);
-    if (!agentIdsInChannel || agentIdsInChannel.size === 0) return;
-
     const { data: collaborators } = await this.supabase
       .from("task_collaborators")
       .select("agent_id, role")
       .eq("task_id", task.id);
 
-    if (collaborators && collaborators.length > 0) {
-      for (const collaborator of collaborators as Array<{ agent_id: string; role: "lead" | "collaborator" }>) {
+    const localCollaborators = ((collaborators || []) as Array<{ agent_id: string; role: "lead" | "collaborator" }>)
+      .filter((collaborator) => this.agentRecords.has(collaborator.agent_id));
+
+    if (localCollaborators.length > 0) {
+      if (!this.channelAgents.has(task.channel_id)) {
+        await this.refreshChannelMembership(task.channel_id);
+      }
+
+      for (const collaborator of localCollaborators) {
         await this.dispatchTaskToAgent(task, collaborator.agent_id, collaborator.role);
       }
       return;
     }
 
-    let targetAgentId: string | null = null;
     if (task.assignee_type === "agent" && task.assignee_id) {
       if (!this.agentRecords.has(task.assignee_id)) return;
-      targetAgentId = task.assignee_id;
-    } else if (agentIdsInChannel.size === 1) {
-      targetAgentId = Array.from(agentIdsInChannel)[0];
+      if (
+        task.status === "in_review" &&
+        await this.agentHasThreadReply(task, task.assignee_id)
+      ) {
+        return;
+      }
+      if (!this.channelAgents.has(task.channel_id)) {
+        await this.refreshChannelMembership(task.channel_id);
+      }
+      if (await this.maybeAutoHandoffRecoveredSlackTask(task, task.assignee_id)) return;
+      await this.dispatchTaskToAgent(task, task.assignee_id, "lead");
+      return;
     }
 
-    if (!targetAgentId) {
+    const agentIdsInChannel =
+      this.channelAgents.get(task.channel_id) ||
+      await this.refreshChannelMembership(task.channel_id);
+
+    if (!agentIdsInChannel || agentIdsInChannel.size === 0) {
+      console.log(
+        `  [Bridge] Task #${task.task_number} arrived before channel ${task.channel_id} had any local agent membership; skipping.`
+      );
+      return;
+    }
+
+    if (agentIdsInChannel.size !== 1) {
       console.log(
         `  [Bridge] Task #${task.task_number} has no resolved lead agent in a multi-agent channel; Slack-native coordination cannot start until configuration is fixed.`
       );
       return;
     }
 
+    const targetAgentId = Array.from(agentIdsInChannel)[0];
+    if (
+      task.status === "in_review" &&
+      await this.agentHasThreadReply(task, targetAgentId)
+    ) {
+      return;
+    }
+    if (await this.maybeAutoHandoffRecoveredSlackTask(task, targetAgentId)) return;
     await this.dispatchTaskToAgent(task, targetAgentId, "lead");
   }
 
@@ -948,9 +1072,12 @@ export class Bridge {
     const channelTarget = this.buildChannelTarget(task.channel_id, senderName);
     const threadTarget = `${channelTarget}:${message.id.replace(/-/g, "").substring(0, 8)}`;
     const contextPrefix = await this.getChannelContext(task.channel_id);
+    const availableAgents = await this.getAvailableChannelAgents(task.channel_id);
+    const availableAgentContext = this.formatAvailableChannelAgentContext(availableAgents);
+    const collaboratorContext = await this.getTaskCollaboratorContext(task.id);
     const roleInstruction =
       role === "lead"
-        ? `You are the lead agent for this task. Start by acknowledging in-thread, coordinate collaborators if any, and consolidate the final result.`
+        ? `You are the lead agent for this task. Start by acknowledging in-thread, coordinate collaborators if any, and consolidate the final result. If the task asks for work owned by another available Slack agent, do only your specialist part, then hand it off with scout task handoff. Do not produce another specialist agent's final deliverable yourself.`
         : `You are a collaborator on this task. Reply in-thread with your contribution, coordinate with the lead agent, and avoid taking over final consolidation unless asked.`;
     const handoffInstruction = handoff
       ? `\n\nHandoff context:\nReason: ${handoff.reason}\nSummary: ${handoff.summary}\nNext action: ${handoff.nextAction}`
@@ -959,8 +1086,10 @@ export class Bridge {
       `${contextPrefix}\n` +
       `\n[target=${threadTarget} sender=@${senderName} type=task task=#${task.task_number}] ` +
       `Scout task #${task.task_number} was created from this message. ${roleInstruction} ` +
+      `${availableAgentContext}` +
+      `${collaboratorContext}` +
       `Keep all progress, handoffs, and the final outcome in this task thread. ` +
-      `If you need another agent, use the Scout task handoff flow instead of informal mentions. ` +
+      `If you need another agent, use the Scout task handoff flow instead of informal mentions; only hand off to agents that are installed and onboarded in this Slack channel. ` +
       `Update the task status when work reaches review or completion.${handoffInstruction}\n\n` +
       message.content;
 
@@ -997,6 +1126,15 @@ export class Bridge {
           { ...(message as DbMessage), thread_parent_id: task.message_id },
           reply
         );
+        if (role === "lead" && !handoff) {
+          await this.maybeAutoHandoffSlackTask(
+            task,
+            agent,
+            message as DbMessage,
+            availableAgents,
+            reply
+          );
+        }
       }
       await this.clearSlackProgressNote(progressNote);
     } catch (err) {
@@ -1021,6 +1159,251 @@ export class Bridge {
         errorMessage
       );
     }
+  }
+
+  private async getAvailableChannelAgents(channelId: string): Promise<DbAgent[]> {
+    const channelAgentIds =
+      this.channelAgents.get(channelId) ||
+      await this.refreshChannelMembership(channelId);
+
+    if (channelAgentIds.size === 0) return [];
+
+    const { data: agents } = await this.supabase
+      .from("agents")
+      .select("id, name, display_name, description, system_prompt, model, status")
+      .in("id", Array.from(channelAgentIds));
+
+    return (agents || []) as DbAgent[];
+  }
+
+  private formatAvailableChannelAgentContext(agents: DbAgent[]) {
+    const labels = agents
+      .map((agent) => {
+        const description = agent.description ? `: ${agent.description}` : "";
+        return `${agent.display_name} (@${agent.name})${description}`;
+      });
+
+    if (labels.length === 0) return "";
+    return `Available installed/onboarded Slack agents in this channel: ${labels.join("; ")}. `;
+  }
+
+  private inferSlackHandoffTarget(
+    task: DbTask,
+    sourceAgent: DbAgent,
+    message: DbMessage,
+    availableAgents: DbAgent[]
+  ): InferredHandoffTarget | null {
+    const text = `${message.content} ${sourceAgent.display_name} ${sourceAgent.name}`.toLowerCase();
+    const asksForOutreach =
+      /\b(outreach|outbound|cold email|sales email|draft (?:an? |the )?(?:email|message|outreach)|message selling|selling my)\b/.test(text);
+    if (!asksForOutreach) return null;
+
+    const sourceIsOutreach = this.agentMatchesSpecialty(sourceAgent, ["outreach", "outbound"]);
+    if (sourceIsOutreach) return null;
+
+    const target = availableAgents.find((agent) =>
+      agent.id !== sourceAgent.id &&
+      this.agentMatchesSpecialty(agent, ["outreach", "outbound"])
+    );
+    if (!target) return null;
+
+    return {
+      agent: target,
+      reason: "The Slack task includes an outreach/outbound drafting phase owned by the installed outreach agent.",
+      summary: `Task #${task.task_number} was started by ${sourceAgent.display_name}. Use the original request and the lead agent's enrichment/context already posted in this thread.`,
+      nextAction: "Draft the outbound message as the outreach specialist and post the final draft in this same Slack thread.",
+    };
+  }
+
+  private agentMatchesSpecialty(agent: DbAgent, keywords: string[]) {
+    const haystack = `${agent.name} ${agent.display_name} ${agent.description || ""} ${agent.system_prompt || ""}`.toLowerCase();
+    return keywords.some((keyword) => haystack.includes(keyword));
+  }
+
+  private async maybeAutoHandoffSlackTask(
+    task: DbTask,
+    sourceAgent: DbAgent,
+    message: DbMessage,
+    availableAgents: DbAgent[],
+    sourceReply: string
+  ) {
+    const handoff = this.inferSlackHandoffTarget(task, sourceAgent, message, availableAgents);
+    if (!handoff) return;
+
+    const { data: existingHandoffs } = await this.supabase
+      .from("agent_handoffs")
+      .select("id")
+      .eq("task_id", task.id)
+      .eq("target_agent_id", handoff.agent.id)
+      .limit(1);
+
+    if (existingHandoffs && existingHandoffs.length > 0) return;
+
+    const handoffText =
+      `Handoff: task #${task.task_number} moved from @${sourceAgent.name} to @${handoff.agent.name}.\n` +
+      `Reason: ${handoff.reason}\n` +
+      `Summary: ${handoff.summary}\n` +
+      `Next action: ${handoff.nextAction}`;
+
+    const { data: handoffMsg, error: messageError } = await this.supabase
+      .from("messages")
+      .insert({
+        channel_id: task.channel_id,
+        sender_id: sourceAgent.id,
+        sender_type: "agent",
+        content: handoffText,
+        thread_parent_id: task.message_id,
+      })
+      .select("id")
+      .single();
+
+    if (messageError || !handoffMsg) {
+      console.error(
+        `  [Bridge] Could not create automatic handoff message for task #${task.task_number}:`,
+        messageError?.message || "message not returned"
+      );
+      return;
+    }
+
+    const { error: taskError } = await this.supabase
+      .from("tasks")
+      .update({
+        assignee_id: handoff.agent.id,
+        assignee_type: "agent",
+        status: "in_progress",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", task.id);
+
+    if (taskError) {
+      console.error(
+        `  [Bridge] Could not assign automatic handoff for task #${task.task_number}:`,
+        taskError.message
+      );
+    }
+
+    const { error: handoffError } = await this.supabase
+      .from("agent_handoffs")
+      .insert({
+        task_id: task.id,
+        message_id: handoffMsg.id,
+        channel_id: task.channel_id,
+        source_agent_id: sourceAgent.id,
+        target_agent_id: handoff.agent.id,
+        reason: handoff.reason,
+        summary: `${handoff.summary}\n\nLead agent output:\n${sourceReply.trim().slice(0, 3000)}`,
+        next_action: handoff.nextAction,
+      });
+
+    if (handoffError) {
+      console.error(
+        `  [Bridge] Could not record automatic handoff for task #${task.task_number}:`,
+        handoffError.message
+      );
+      return;
+    }
+
+    console.log(
+      `  [Bridge] Automatically handed task #${task.task_number} from ${sourceAgent.display_name} to ${handoff.agent.display_name}.`
+    );
+
+    await this.dispatchTaskToAgent(task, handoff.agent.id, "lead", {
+      reason: handoff.reason,
+      summary: handoff.summary,
+      nextAction: handoff.nextAction,
+    });
+  }
+
+  private async maybeAutoHandoffRecoveredSlackTask(task: DbTask, sourceAgentId: string) {
+    const sourceAgent = this.agentRecords.get(sourceAgentId);
+    if (!sourceAgent) return false;
+
+    const { data: message } = await this.supabase
+      .from("messages")
+      .select("id, channel_id, sender_id, sender_type, content, thread_parent_id, created_at")
+      .eq("id", task.message_id)
+      .single();
+
+    if (!message) return false;
+
+    const availableAgents = await this.getAvailableChannelAgents(task.channel_id);
+    const handoff = this.inferSlackHandoffTarget(
+      task,
+      sourceAgent,
+      message as DbMessage,
+      availableAgents
+    );
+    if (!handoff) return false;
+
+    const { data: latestLeadReplies } = await this.supabase
+      .from("messages")
+      .select("content")
+      .eq("thread_parent_id", task.message_id)
+      .eq("sender_id", sourceAgent.id)
+      .eq("sender_type", "agent")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const latestLeadReply = latestLeadReplies?.[0]?.content;
+    if (!latestLeadReply) return false;
+
+    await this.maybeAutoHandoffSlackTask(
+      task,
+      sourceAgent,
+      message as DbMessage,
+      availableAgents,
+      latestLeadReply as string
+    );
+    return true;
+  }
+
+  private async agentHasThreadReply(task: DbTask, agentId: string) {
+    const { data } = await this.supabase
+      .from("messages")
+      .select("id")
+      .eq("thread_parent_id", task.message_id)
+      .eq("sender_id", agentId)
+      .eq("sender_type", "agent")
+      .limit(1);
+
+    return Boolean(data && data.length > 0);
+  }
+
+  private async getTaskCollaboratorContext(taskId: string) {
+    const { data: collaborators } = await this.supabase
+      .from("task_collaborators")
+      .select("agent_id, role")
+      .eq("task_id", taskId);
+
+    if (!collaborators || collaborators.length === 0) return "";
+
+    const rows = collaborators as Array<{ agent_id: string; role: "lead" | "collaborator" }>;
+    const agentIds = rows.map((row) => row.agent_id);
+    const { data: agents } = await this.supabase
+      .from("agents")
+      .select("id, name, display_name")
+      .in("id", agentIds);
+
+    const agentsById = new Map(
+      (agents || []).map((agent) => [
+        agent.id as string,
+        {
+          name: agent.name as string,
+          displayName: agent.display_name as string,
+        },
+      ])
+    );
+
+    const labels = rows
+      .map((row) => {
+        const agent = agentsById.get(row.agent_id);
+        if (!agent) return null;
+        return `${agent.displayName} (@${agent.name}, ${row.role})`;
+      })
+      .filter(Boolean);
+
+    if (labels.length === 0) return "";
+    return `Assigned task collaborators: ${labels.join("; ")}. `;
   }
 
   private subscribeToNewAgents() {

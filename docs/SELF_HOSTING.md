@@ -123,7 +123,7 @@ This bypasses the `--api-key` flow and connects directly with the service role k
 
 The bridge is the most security-sensitive piece because it runs Claude Code on your machine with full local access. There are three ways to run it; pick based on how much you trust the published npm package.
 
-### Option 1 — Use the published `@scout/scout-bridge` (recommended)
+### Option 1 — Use the published `@scout-ai/scout-bridge` (recommended)
 
 This is what most self-hosters should do. Zero setup overhead, automatic bug fixes, works out of the box.
 
@@ -138,7 +138,7 @@ npx @scout-ai/scout-bridge --api-key zk_your_key_here
 npx @scout-ai/scout-bridge@0.1.5 --api-key zk_your_key_here
 ```
 
-You can find the latest version on [npm](https://www.npmjs.com/package/@scout/scout-bridge).
+You can find the latest version on [npm](https://www.npmjs.com/package/@scout-ai/scout-bridge).
 
 ### Option 2 — Build from source
 
@@ -147,7 +147,7 @@ For high-trust environments (regulated workloads, security audits, air-gapped ne
 ```bash
 git clone https://github.com/EryouHao/scout.git
 cd scout && pnpm install
-pnpm --filter @scout/scout-bridge build
+pnpm --filter @scout-ai/scout-bridge build
 node apps/bridge/dist/index.js \
   --api-key zk_your_key_here \
   --server-url https://scout.example.com
@@ -164,7 +164,7 @@ For larger deployments, mirror the npm tarball into your own private registry (V
 A natural question: why not just have each Scout server host its own bridge installer (`curl my-scout.com/install.sh`)? Two reasons:
 
 1. The bridge is a **client tool** — it runs on the user's machine, not the server. Distributing it via npm means it gets the standard Node.js install/update story instead of a custom one.
-2. Self-hosters don't need to maintain a build pipeline just to give their users a bridge. The same `@scout/scout-bridge` works against any compatible Scout server.
+2. Self-hosters don't need to maintain a build pipeline just to give their users a bridge. The same `@scout-ai/scout-bridge` works against any compatible Scout server.
 
 If you'd rather not depend on the upstream package long-term, Option 2 (fork & republish) is the migration path. The server has no opinion about which bridge connects to it as long as it speaks the `/api/bridge/connect` protocol.
 
@@ -188,7 +188,7 @@ When you pull new commits from upstream:
 1. `pnpm install` to pick up dependency changes.
 2. Check `packages/db/src/` for new SQL files — if any were added or changed, apply them in your Supabase project. There's no migration tooling yet; check the diff manually.
 3. Redeploy the web app.
-4. The published `@scout/scout-bridge` is updated separately on npm. If you've forked the bridge, build and deploy your fork.
+4. The published `@scout-ai/scout-bridge` is updated separately on npm. If you've forked the bridge, build and deploy your fork.
 
 ## Cost notes
 

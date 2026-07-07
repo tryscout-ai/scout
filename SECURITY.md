@@ -27,7 +27,7 @@ When reporting, please include:
 In-scope:
 
 - The Scout web application (`apps/web`)
-- The Scout bridge published as `@scout/scout-bridge` on npm
+- The Scout bridge published as `@scout-ai/scout-bridge` on npm
 - The `@scout/scout-cli` package
 - Database schema, RLS policies, and triggers in `packages/db`
 

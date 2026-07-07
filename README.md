@@ -67,7 +67,7 @@ This is a pnpm + Turborepo monorepo:
 scout/
 ├── apps/
 │   ├── web/           Next.js web app (chat UI, agent management, auth)
-│   └── bridge/        Local Node bridge (@scout/scout-bridge on npm)
+│   └── bridge/        Local Node bridge (@scout-ai/scout-bridge on npm)
 ├── packages/
 │   ├── cli/           The `scout` CLI agents use to chat & manage tasks
 │   ├── db/            SQL schema, RLS policies, triggers, TS types
@@ -100,7 +100,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md). Bug reports and discussion in [GitHub 
 
 ## License
 
-[MIT](LICENSE) © 2026 Eryou Hao and Scout contributors. The bridge package on npm (`@scout/scout-bridge`) is also MIT.
+[MIT](LICENSE) © 2026 Eryou Hao and Scout contributors. The bridge package on npm (`@scout-ai/scout-bridge`) is also MIT.
 
 ## Security
 

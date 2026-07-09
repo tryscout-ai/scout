@@ -432,6 +432,11 @@ async function submitRejectedDraft(payload: SlackInteractionPayload, metadata: D
   const channelId = context.mapping.slack_channel_id as string;
   const messageTs = context.mapping.slack_message_ts as string;
   const requestedBy = payload.user?.id ? `<@${payload.user.id}>` : "A reviewer";
+  const revisionContent =
+    `${mention} Revision requested from Slack for task #${taskNumber}:\n` +
+    `${instructions}\n\n` +
+    "Please post exactly one revised draft only. Do not include the previous draft, " +
+    "multiple options, explanations, or labels like \"Outreach Agent:\". When the revised draft is ready, mark the task in_review.";
 
   const { error: updateError } = await context.admin
     .from("tasks")
@@ -444,14 +449,29 @@ async function submitRejectedDraft(payload: SlackInteractionPayload, metadata: D
     .eq("id", metadata.taskId);
   if (updateError) throw new Error(updateError.message);
 
-  const { error: insertError } = await context.admin.from("messages").insert({
-    channel_id: context.task.channel_id,
-    sender_id: humanId,
-    sender_type: "human",
-    content: `${mention} Revision requested from Slack for task #${taskNumber}:\n${instructions}`,
-    thread_parent_id: context.task.message_id,
-  });
-  if (insertError) throw new Error(insertError.message);
+  const since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const { data: existingRevision, error: existingRevisionError } = await context.admin
+    .from("messages")
+    .select("id")
+    .eq("channel_id", context.task.channel_id)
+    .eq("sender_id", humanId)
+    .eq("sender_type", "human")
+    .eq("thread_parent_id", context.task.message_id)
+    .eq("content", revisionContent)
+    .gte("created_at", since)
+    .maybeSingle();
+  if (existingRevisionError) throw new Error(existingRevisionError.message);
+
+  if (!existingRevision) {
+    const { error: insertError } = await context.admin.from("messages").insert({
+      channel_id: context.task.channel_id,
+      sender_id: humanId,
+      sender_type: "human",
+      content: revisionContent,
+      thread_parent_id: context.task.message_id,
+    });
+    if (insertError) throw new Error(insertError.message);
+  }
 
   await slackApi("chat.update", token, {
     channel: channelId,

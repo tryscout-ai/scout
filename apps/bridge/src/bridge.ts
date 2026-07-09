@@ -329,6 +329,18 @@ export class Bridge {
     return `${value.slice(0, maxLength - 3)}...`;
   }
 
+  private stripLeadingSenderLabel(value: string, senderName: string) {
+    const names = [senderName, senderName.replace(/\s+/g, "")];
+    let text = value.trim();
+
+    for (const name of names) {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      text = text.replace(new RegExp(`^\\s*\\*?${escaped}\\*?\\s*:\\s*`, "i"), "").trim();
+    }
+
+    return text;
+  }
+
   private buildSlackDraftReviewBlocks(params: {
     agentName: string;
     taskNumber: number;
@@ -491,16 +503,17 @@ export class Bridge {
     try {
       const reviewTask = await this.reviewTaskForAgentMessage(msg);
       const senderName = await this.resolveSenderName(msg.sender_id, msg.sender_type);
+      const slackContent = this.stripLeadingSenderLabel(msg.content, senderName);
       const fallbackText = reviewTask
-        ? `Draft ready for review from ${senderName} for task #${reviewTask.task_number}:\n${msg.content}`
-        : `*${senderName}:*\n${msg.content}`;
+        ? `Draft ready for review from ${senderName} for task #${reviewTask.task_number}:\n${slackContent}`
+        : `*${senderName}:*\n${slackContent}`;
       const reviewBlocks = reviewTask
         ? this.buildSlackDraftReviewBlocks({
             agentName: senderName,
             taskNumber: reviewTask.task_number,
             taskId: reviewTask.id,
             scoutMessageId: msg.id,
-            draft: msg.content,
+            draft: slackContent,
           })
         : undefined;
 

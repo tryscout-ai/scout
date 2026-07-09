@@ -81,6 +81,8 @@ interface SlackMessageMapping {
   slack_thread_ts: string | null;
 }
 
+type SlackBlock = Record<string, unknown>;
+
 interface SlackAgentAppToken {
   bot_access_token_encrypted: string | null;
 }
@@ -322,7 +324,87 @@ export class Bridge {
       });
   }
 
-  private async postSlack(channelId: string, text: string, threadTs?: string | null, tokenOverride?: string | null) {
+  private truncateSlackText(value: string, maxLength: number) {
+    if (value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength - 3)}...`;
+  }
+
+  private buildSlackDraftReviewBlocks(params: {
+    agentName: string;
+    taskNumber: number;
+    taskId: string;
+    scoutMessageId: string;
+    draft: string;
+  }): SlackBlock[] {
+    const actionValue = JSON.stringify({
+      taskId: params.taskId,
+      scoutMessageId: params.scoutMessageId,
+    });
+    const draftText = this.truncateSlackText(params.draft, 2800);
+
+    return [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: this.truncateSlackText(`Draft ready for review - Task #${params.taskNumber}`, 150),
+          emoji: true,
+        },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*${params.agentName} drafted:*\n${draftText}`,
+        },
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: { type: "plain_text", text: "Approve", emoji: true },
+            style: "primary",
+            action_id: "scout_draft_approve",
+            value: actionValue,
+          },
+          {
+            type: "button",
+            text: { type: "plain_text", text: "Edit", emoji: true },
+            action_id: "scout_draft_edit",
+            value: actionValue,
+          },
+          {
+            type: "button",
+            text: { type: "plain_text", text: "Reject", emoji: true },
+            style: "danger",
+            action_id: "scout_draft_reject",
+            value: actionValue,
+          },
+        ],
+      },
+    ];
+  }
+
+  private async reviewTaskForAgentMessage(msg: DbMessage): Promise<DbTask | null> {
+    if (!msg.thread_parent_id || msg.sender_type !== "agent") return null;
+
+    const task = await this.getTaskForThreadParent(msg.thread_parent_id);
+    if (!task || task.status !== "in_review") return null;
+    if (task.assignee_type === "agent" && task.assignee_id && task.assignee_id !== msg.sender_id) {
+      return null;
+    }
+
+    return task;
+  }
+
+  private async postSlack(
+    channelId: string,
+    text: string,
+    threadTs?: string | null,
+    tokenOverride?: string | null,
+    blocks?: SlackBlock[]
+  ) {
     const token = tokenOverride || process.env.SLACK_BOT_TOKEN;
     if (!token) return null;
 
@@ -338,6 +420,7 @@ export class Bridge {
         thread_ts: threadTs || undefined,
         unfurl_links: false,
         unfurl_media: false,
+        blocks,
       }),
     });
 
@@ -348,7 +431,13 @@ export class Bridge {
     return body.ts || null;
   }
 
-  private async updateSlackMessage(channelId: string, messageTs: string, text: string, tokenOverride?: string | null) {
+  private async updateSlackMessage(
+    channelId: string,
+    messageTs: string,
+    text: string,
+    tokenOverride?: string | null,
+    blocks?: SlackBlock[]
+  ) {
     const token = tokenOverride || process.env.SLACK_BOT_TOKEN;
     if (!token) return;
 
@@ -364,6 +453,7 @@ export class Bridge {
         text,
         unfurl_links: false,
         unfurl_media: false,
+        blocks,
       }),
     });
 
@@ -399,9 +489,24 @@ export class Bridge {
     this.slackMirroredMessageIds.add(msg.id);
 
     try {
+      const reviewTask = await this.reviewTaskForAgentMessage(msg);
+      const senderName = await this.resolveSenderName(msg.sender_id, msg.sender_type);
+      const fallbackText = reviewTask
+        ? `Draft ready for review from ${senderName} for task #${reviewTask.task_number}:\n${msg.content}`
+        : `*${senderName}:*\n${msg.content}`;
+      const reviewBlocks = reviewTask
+        ? this.buildSlackDraftReviewBlocks({
+            agentName: senderName,
+            taskNumber: reviewTask.task_number,
+            taskId: reviewTask.id,
+            scoutMessageId: msg.id,
+            draft: msg.content,
+          })
+        : undefined;
+
       const { data: existingReplyMapping, error: existingReplyMappingError } = await this.supabase
         .from("slack_message_mappings")
-        .select("scout_message_id")
+        .select("slack_team_id, slack_channel_id, slack_message_ts, slack_thread_ts")
         .eq("scout_message_id", msg.id)
         .maybeSingle();
 
@@ -412,7 +517,20 @@ export class Bridge {
         );
       }
 
-      if (existingReplyMapping) return;
+      if (existingReplyMapping) {
+        if (reviewTask) {
+          const token = await this.resolveSlackAgentToken(msg.sender_id);
+          const mapping = existingReplyMapping as SlackMessageMapping;
+          await this.updateSlackMessage(
+            mapping.slack_channel_id,
+            mapping.slack_message_ts,
+            fallbackText,
+            token,
+            reviewBlocks
+          );
+        }
+        return;
+      }
 
       const { data } = await this.supabase
         .from("slack_message_mappings")
@@ -426,14 +544,13 @@ export class Bridge {
         return;
       }
 
-      const senderName = await this.resolveSenderName(msg.sender_id, msg.sender_type);
-      const slackText = `*${senderName}:*\n${msg.content}`;
       const token = await this.resolveSlackAgentToken(msg.sender_id);
       const slackTs = await this.postSlack(
         slackRef.slack_channel_id,
-        slackText,
+        fallbackText,
         slackRef.slack_thread_ts || slackRef.slack_message_ts,
-        token
+        token,
+        reviewBlocks
       );
 
       if (slackTs) {
@@ -593,6 +710,21 @@ export class Bridge {
           this.handleNewTask(task);
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "tasks",
+        },
+        (payload) => {
+          const task = payload.new as DbTask;
+          const oldTask = payload.old as Partial<DbTask>;
+          if (task.status === "in_review" && oldTask.status !== "in_review") {
+            this.handleTaskReadyForReview(task);
+          }
+        }
+      )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           console.log("  Subscribed to Scout tasks.");
@@ -600,6 +732,34 @@ export class Bridge {
           console.error("  Scout task subscription error.");
         }
       });
+  }
+
+  private async handleTaskReadyForReview(task: DbTask) {
+    const query = this.supabase
+      .from("messages")
+      .select("id, channel_id, sender_id, sender_type, content, thread_parent_id, created_at")
+      .eq("channel_id", task.channel_id)
+      .eq("thread_parent_id", task.message_id)
+      .eq("sender_type", "agent")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (task.assignee_type === "agent" && task.assignee_id) {
+      query.eq("sender_id", task.assignee_id);
+    }
+
+    const { data, error } = await query.maybeSingle();
+    if (error) {
+      console.error(
+        `  [Bridge] Could not load review draft for task #${task.task_number}:`,
+        error.message
+      );
+      return;
+    }
+    if (!data) return;
+
+    this.slackMirroredMessageIds.delete(data.id);
+    await this.mirrorAgentReplyToSlack(data as DbMessage);
   }
 
   private subscribeToTaskCollaborators() {

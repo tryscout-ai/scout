@@ -91,13 +91,6 @@ interface SlackProgressNote {
   token: string | null;
 }
 
-interface InferredHandoffTarget {
-  agent: DbAgent;
-  reason: string;
-  summary: string;
-  nextAction: string;
-}
-
 function slackEncryptionKey() {
   const secret =
     process.env.SCOUT_SLACK_TOKEN_ENCRYPTION_KEY ||
@@ -635,7 +628,14 @@ export class Bridge {
             return;
           }
 
-          await this.dispatchTaskToAgent(task as DbTask, collaborator.agent_id, collaborator.role);
+          if (collaborator.role !== "lead") {
+            console.log(
+              `  [Bridge] Collaborator wake skipped for task #${(task as DbTask).task_number}: ${collaborator.agent_id} is not the lead.`
+            );
+            return;
+          }
+
+          await this.dispatchTaskToAgent(task as DbTask, collaborator.agent_id, "lead");
         }
       )
       .subscribe((status) => {
@@ -699,7 +699,41 @@ export class Bridge {
     content: string,
     channelAgentIds: Set<string>
   ): Set<string> {
+    return new Set(this.parseMentionedAgentsInOrder(content, channelAgentIds));
+  }
+
+  private parseMentionedAgentsInOrder(
+    content: string,
+    channelAgentIds: Set<string>
+  ): string[] {
     const mentioned = new Set<string>();
+    const ordered: string[] = [];
+    const mentionMatches = Array.from(content.matchAll(/@([a-z0-9][a-z0-9 _.-]{0,80})/gi));
+
+    for (const match of mentionMatches) {
+      const mentionText = match[1].trim();
+      const words = mentionText.split(/\s+/).filter(Boolean);
+      for (let len = words.length; len >= 1; len--) {
+        const candidate = words.slice(0, len).join(" ").replace(/[.,:!?，。！？、；]+$/g, "");
+        for (const agentId of channelAgentIds) {
+          if (mentioned.has(agentId)) continue;
+          const agent = this.agentRecords.get(agentId);
+          if (!agent) continue;
+          const aliases = [
+            agent.display_name,
+            agent.name,
+            agent.display_name.replace(/\s+/g, ""),
+          ];
+          if (aliases.some((alias) => alias.toLowerCase() === candidate.toLowerCase())) {
+            mentioned.add(agentId);
+            ordered.push(agentId);
+          }
+        }
+      }
+    }
+
+    if (ordered.length > 0) return ordered;
+
     for (const agentId of channelAgentIds) {
       const agent = this.agentRecords.get(agentId);
       if (!agent) continue;
@@ -716,11 +750,12 @@ export class Bridge {
         const pattern = new RegExp(`@${escaped}(?=[\\s,.:!?，。！？、；]|$)`, "i");
         if (pattern.test(content)) {
           mentioned.add(agentId);
+          ordered.push(agentId);
           break;
         }
       }
     }
-    return mentioned;
+    return ordered;
   }
 
   /**
@@ -827,6 +862,127 @@ export class Bridge {
     }
 
     await this.mirrorAgentReplyToSlack(inserted as DbMessage);
+    await this.createExplicitHandoffFromAgentReply(inserted as DbMessage);
+  }
+
+  private async createExplicitHandoffFromAgentReply(msg: DbMessage) {
+    if (msg.sender_type !== "agent" || !msg.thread_parent_id) return;
+
+    const dbTask = await this.getTaskForThreadParent(msg.thread_parent_id);
+    if (!dbTask) return;
+    if (dbTask.status === "done") {
+      console.log(
+        `  [Bridge] Explicit handoff ignored for task #${dbTask.task_number}: task is done.`
+      );
+      return;
+    }
+
+    if (dbTask.assignee_id !== msg.sender_id) {
+      console.log(
+        `  [Bridge] Explicit handoff ignored for task #${dbTask.task_number}: @mention came from non-assignee ${msg.sender_id}; current assignee is ${dbTask.assignee_id || "none"}.`
+      );
+      return;
+    }
+
+    const channelAgentIds =
+      this.channelAgents.get(msg.channel_id) ||
+      await this.refreshChannelMembership(msg.channel_id);
+    const mentionedAgentIds = this.parseMentionedAgentsInOrder(msg.content, channelAgentIds)
+      .filter((agentId) => agentId !== msg.sender_id);
+
+    if (mentionedAgentIds.length === 0) return;
+
+    const targetAgentId = mentionedAgentIds[0];
+    const sourceAgent = this.agentRecords.get(msg.sender_id);
+    const targetAgent = this.agentRecords.get(targetAgentId);
+    if (!sourceAgent || !targetAgent) return;
+
+    const { data: existing } = await this.supabase
+      .from("agent_handoffs")
+      .select("id")
+      .eq("message_id", msg.id)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      console.log(
+        `  [Bridge] Explicit handoff ignored for task #${dbTask.task_number}: message ${msg.id} already has a handoff row.`
+      );
+      return;
+    }
+
+    console.log(
+      `  [Bridge] Explicit handoff detected for task #${dbTask.task_number}: ${sourceAgent.display_name} mentioned ${targetAgent.display_name}.`
+    );
+
+    const { data: updatedTask, error: updateError } = await this.supabase
+      .from("tasks")
+      .update({
+        assignee_id: targetAgentId,
+        assignee_type: "agent",
+        status: "in_progress",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", dbTask.id)
+      .eq("assignee_id", msg.sender_id)
+      .select("id")
+      .maybeSingle();
+
+    if (updateError) {
+      console.error(
+        `  [Bridge] Explicit handoff assignment failed for task #${dbTask.task_number}:`,
+        updateError.message
+      );
+      return;
+    }
+    if (!updatedTask) {
+      console.log(
+        `  [Bridge] Explicit handoff ignored for task #${dbTask.task_number}: task ownership changed before assignment.`
+      );
+      return;
+    }
+
+    const { error: handoffError } = await this.supabase
+      .from("agent_handoffs")
+      .insert({
+        task_id: dbTask.id,
+        message_id: msg.id,
+        channel_id: dbTask.channel_id,
+        source_agent_id: msg.sender_id,
+        target_agent_id: targetAgentId,
+        reason: `Explicit @mention of @${targetAgent.name} in ${sourceAgent.display_name}'s task reply.`,
+        summary: msg.content.trim().slice(0, 3000),
+        next_action: "Continue from the explicit handoff message in this task thread.",
+      });
+
+    if (handoffError) {
+      console.error(
+        `  [Bridge] Explicit handoff row failed for task #${dbTask.task_number}:`,
+        handoffError.message
+      );
+      return;
+    }
+
+    console.log(
+      `  [Bridge] Explicit handoff recorded for task #${dbTask.task_number}: ${sourceAgent.display_name} -> ${targetAgent.display_name}.`
+    );
+  }
+
+  private async getTaskForThreadParent(threadParentId: string): Promise<DbTask | null> {
+    const { data, error } = await this.supabase
+      .from("tasks")
+      .select("id, task_number, status, assignee_id, assignee_type, channel_id, message_id, created_at")
+      .eq("message_id", threadParentId)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        `  [Bridge] Could not load task for thread ${threadParentId}:`,
+        error.message
+      );
+      return null;
+    }
+
+    return data as DbTask | null;
   }
 
   private async handleNewMessage(msg: DbMessage) {
@@ -838,6 +994,10 @@ export class Bridge {
     // Check if any of our agents are in this channel
     const agentIdsInChannel = this.channelAgents.get(msg.channel_id);
     if (!agentIdsInChannel || agentIdsInChannel.size === 0) return;
+
+    const threadTask = msg.thread_parent_id
+      ? await this.getTaskForThreadParent(msg.thread_parent_id)
+      : null;
 
     const channelType = this.channelTypes.get(msg.channel_id);
     const isDm = channelType === "dm";
@@ -869,6 +1029,29 @@ export class Bridge {
         return;
       }
       respondingAgentIds = mentioned;
+    }
+
+    if (threadTask) {
+      if (threadTask.status === "done") {
+        console.log(
+          `  [Bridge] Thread mention ignored for task #${threadTask.task_number}: task is done.`
+        );
+        return;
+      }
+      if (threadTask.assignee_type === "agent" && threadTask.assignee_id) {
+        const allowed = new Set([threadTask.assignee_id]);
+        const filtered = new Set(
+          Array.from(respondingAgentIds).filter((agentId) => allowed.has(agentId))
+        );
+        if (filtered.size === 0) {
+          const owner = this.agentRecords.get(threadTask.assignee_id)?.display_name || threadTask.assignee_id;
+          console.log(
+            `  [Bridge] Thread mention ignored for task #${threadTask.task_number}: current assignee is ${owner}.`
+          );
+          return;
+        }
+        respondingAgentIds = filtered;
+      }
     }
 
     // Resolve sender name for message context
@@ -940,13 +1123,14 @@ export class Bridge {
     const localCollaborators = ((collaborators || []) as Array<{ agent_id: string; role: "lead" | "collaborator" }>)
       .filter((collaborator) => this.agentRecords.has(collaborator.agent_id));
 
-    if (localCollaborators.length > 0) {
+    const leadCollaborators = localCollaborators.filter((collaborator) => collaborator.role === "lead");
+    if (leadCollaborators.length > 0) {
       if (!this.channelAgents.has(task.channel_id)) {
         await this.refreshChannelMembership(task.channel_id);
       }
 
-      for (const collaborator of localCollaborators) {
-        await this.dispatchTaskToAgent(task, collaborator.agent_id, collaborator.role);
+      for (const collaborator of leadCollaborators) {
+        await this.dispatchTaskToAgent(task, collaborator.agent_id, "lead");
       }
       return;
     }
@@ -962,7 +1146,6 @@ export class Bridge {
       if (!this.channelAgents.has(task.channel_id)) {
         await this.refreshChannelMembership(task.channel_id);
       }
-      if (await this.maybeAutoHandoffRecoveredSlackTask(task, task.assignee_id)) return;
       await this.dispatchTaskToAgent(task, task.assignee_id, "lead");
       return;
     }
@@ -992,7 +1175,6 @@ export class Bridge {
     ) {
       return;
     }
-    if (await this.maybeAutoHandoffRecoveredSlackTask(task, targetAgentId)) return;
     await this.dispatchTaskToAgent(task, targetAgentId, "lead");
   }
 
@@ -1046,10 +1228,44 @@ export class Bridge {
   ) {
     if (!this.agentRecords.has(targetAgentId)) return;
     if (!force && this.hasDispatchedTask(task.id, targetAgentId)) return;
-    this.markTaskDispatched(task.id, targetAgentId);
 
     const agent = this.agentRecords.get(targetAgentId);
     if (!agent) return;
+
+    const { data: currentTask, error: currentTaskError } = await this.supabase
+      .from("tasks")
+      .select("id, task_number, status, assignee_id, assignee_type")
+      .eq("id", task.id)
+      .single();
+
+    if (currentTaskError || !currentTask) {
+      console.error(
+        `  [Bridge] Dispatch skipped for task #${task.task_number}: could not refresh task owner:`,
+        currentTaskError?.message || "task not found"
+      );
+      return;
+    }
+
+    if (currentTask.status === "done") {
+      console.log(
+        `  [Bridge] Dispatch skipped for task #${task.task_number} to ${agent.display_name}: task is done.`
+      );
+      return;
+    }
+
+    if (
+      currentTask.assignee_type === "agent" &&
+      currentTask.assignee_id &&
+      currentTask.assignee_id !== targetAgentId
+    ) {
+      const owner = this.agentRecords.get(currentTask.assignee_id)?.display_name || currentTask.assignee_id;
+      console.log(
+        `  [Bridge] Dispatch skipped for task #${task.task_number} to ${agent.display_name}: current assignee is ${owner}.`
+      );
+      return;
+    }
+
+    this.markTaskDispatched(task.id, targetAgentId);
 
     const { data: message, error } = await this.supabase
       .from("messages")
@@ -1077,7 +1293,7 @@ export class Bridge {
     const collaboratorContext = await this.getTaskCollaboratorContext(task.id);
     const roleInstruction =
       role === "lead"
-        ? `You are the lead agent for this task. Start by acknowledging in-thread, coordinate collaborators if any, and consolidate the final result. If the task asks for work owned by another available Slack agent, do only your specialist part, then hand it off with scout task handoff. Do not produce another specialist agent's final deliverable yourself.`
+        ? `You are the lead agent for this task. Start by acknowledging in-thread, do only your specialist part, and consolidate only when no handoff is needed. If another installed Slack agent should continue, explicitly @mention that exact next agent in your final in-thread reply. Do not hand off to any agent that was not explicitly named by your own instructions or by the human.`
         : `You are a collaborator on this task. Reply in-thread with your contribution, coordinate with the lead agent, and avoid taking over final consolidation unless asked.`;
     const handoffInstruction = handoff
       ? `\n\nHandoff context:\nReason: ${handoff.reason}\nSummary: ${handoff.summary}\nNext action: ${handoff.nextAction}`
@@ -1089,7 +1305,7 @@ export class Bridge {
       `${availableAgentContext}` +
       `${collaboratorContext}` +
       `Keep all progress, handoffs, and the final outcome in this task thread. ` +
-      `If you need another agent, use the Scout task handoff flow instead of informal mentions; only hand off to agents that are installed and onboarded in this Slack channel. ` +
+      `If you need another agent, name exactly one next agent with an @mention in your final reply; the bridge will route only that explicit mention and will not infer workflow order. ` +
       `Update the task status when work reaches review or completion.${handoffInstruction}\n\n` +
       message.content;
 
@@ -1126,15 +1342,6 @@ export class Bridge {
           { ...(message as DbMessage), thread_parent_id: task.message_id },
           reply
         );
-        if (role === "lead" && !handoff) {
-          await this.maybeAutoHandoffSlackTask(
-            task,
-            agent,
-            message as DbMessage,
-            availableAgents,
-            reply
-          );
-        }
       }
       await this.clearSlackProgressNote(progressNote);
     } catch (err) {
@@ -1185,176 +1392,6 @@ export class Bridge {
 
     if (labels.length === 0) return "";
     return `Available installed/onboarded Slack agents in this channel: ${labels.join("; ")}. `;
-  }
-
-  private inferSlackHandoffTarget(
-    task: DbTask,
-    sourceAgent: DbAgent,
-    message: DbMessage,
-    availableAgents: DbAgent[]
-  ): InferredHandoffTarget | null {
-    const text = `${message.content} ${sourceAgent.display_name} ${sourceAgent.name}`.toLowerCase();
-    const asksForOutreach =
-      /\b(outreach|outbound|cold email|sales email|draft (?:an? |the )?(?:email|message|outreach)|message selling|selling my)\b/.test(text);
-    if (!asksForOutreach) return null;
-
-    const sourceIsOutreach = this.agentMatchesSpecialty(sourceAgent, ["outreach", "outbound"]);
-    if (sourceIsOutreach) return null;
-
-    const target = availableAgents.find((agent) =>
-      agent.id !== sourceAgent.id &&
-      this.agentMatchesSpecialty(agent, ["outreach", "outbound"])
-    );
-    if (!target) return null;
-
-    return {
-      agent: target,
-      reason: "The Slack task includes an outreach/outbound drafting phase owned by the installed outreach agent.",
-      summary: `Task #${task.task_number} was started by ${sourceAgent.display_name}. Use the original request and the lead agent's enrichment/context already posted in this thread.`,
-      nextAction: "Draft the outbound message as the outreach specialist and post the final draft in this same Slack thread.",
-    };
-  }
-
-  private agentMatchesSpecialty(agent: DbAgent, keywords: string[]) {
-    const haystack = `${agent.name} ${agent.display_name} ${agent.description || ""} ${agent.system_prompt || ""}`.toLowerCase();
-    return keywords.some((keyword) => haystack.includes(keyword));
-  }
-
-  private async maybeAutoHandoffSlackTask(
-    task: DbTask,
-    sourceAgent: DbAgent,
-    message: DbMessage,
-    availableAgents: DbAgent[],
-    sourceReply: string
-  ) {
-    const handoff = this.inferSlackHandoffTarget(task, sourceAgent, message, availableAgents);
-    if (!handoff) return;
-
-    const { data: existingHandoffs } = await this.supabase
-      .from("agent_handoffs")
-      .select("id")
-      .eq("task_id", task.id)
-      .eq("target_agent_id", handoff.agent.id)
-      .limit(1);
-
-    if (existingHandoffs && existingHandoffs.length > 0) return;
-
-    const handoffText =
-      `Handoff: task #${task.task_number} moved from @${sourceAgent.name} to @${handoff.agent.name}.\n` +
-      `Reason: ${handoff.reason}\n` +
-      `Summary: ${handoff.summary}\n` +
-      `Next action: ${handoff.nextAction}`;
-
-    const { data: handoffMsg, error: messageError } = await this.supabase
-      .from("messages")
-      .insert({
-        channel_id: task.channel_id,
-        sender_id: sourceAgent.id,
-        sender_type: "agent",
-        content: handoffText,
-        thread_parent_id: task.message_id,
-      })
-      .select("id")
-      .single();
-
-    if (messageError || !handoffMsg) {
-      console.error(
-        `  [Bridge] Could not create automatic handoff message for task #${task.task_number}:`,
-        messageError?.message || "message not returned"
-      );
-      return;
-    }
-
-    const { error: taskError } = await this.supabase
-      .from("tasks")
-      .update({
-        assignee_id: handoff.agent.id,
-        assignee_type: "agent",
-        status: "in_progress",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", task.id);
-
-    if (taskError) {
-      console.error(
-        `  [Bridge] Could not assign automatic handoff for task #${task.task_number}:`,
-        taskError.message
-      );
-    }
-
-    const { error: handoffError } = await this.supabase
-      .from("agent_handoffs")
-      .insert({
-        task_id: task.id,
-        message_id: handoffMsg.id,
-        channel_id: task.channel_id,
-        source_agent_id: sourceAgent.id,
-        target_agent_id: handoff.agent.id,
-        reason: handoff.reason,
-        summary: `${handoff.summary}\n\nLead agent output:\n${sourceReply.trim().slice(0, 3000)}`,
-        next_action: handoff.nextAction,
-      });
-
-    if (handoffError) {
-      console.error(
-        `  [Bridge] Could not record automatic handoff for task #${task.task_number}:`,
-        handoffError.message
-      );
-      return;
-    }
-
-    console.log(
-      `  [Bridge] Automatically handed task #${task.task_number} from ${sourceAgent.display_name} to ${handoff.agent.display_name}.`
-    );
-
-    await this.dispatchTaskToAgent(task, handoff.agent.id, "lead", {
-      reason: handoff.reason,
-      summary: handoff.summary,
-      nextAction: handoff.nextAction,
-    });
-  }
-
-  private async maybeAutoHandoffRecoveredSlackTask(task: DbTask, sourceAgentId: string) {
-    const sourceAgent = this.agentRecords.get(sourceAgentId);
-    if (!sourceAgent) return false;
-
-    const { data: message } = await this.supabase
-      .from("messages")
-      .select("id, channel_id, sender_id, sender_type, content, thread_parent_id, created_at")
-      .eq("id", task.message_id)
-      .single();
-
-    if (!message) return false;
-
-    const availableAgents = await this.getAvailableChannelAgents(task.channel_id);
-    const handoff = this.inferSlackHandoffTarget(
-      task,
-      sourceAgent,
-      message as DbMessage,
-      availableAgents
-    );
-    if (!handoff) return false;
-
-    const { data: latestLeadReplies } = await this.supabase
-      .from("messages")
-      .select("content")
-      .eq("thread_parent_id", task.message_id)
-      .eq("sender_id", sourceAgent.id)
-      .eq("sender_type", "agent")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    const latestLeadReply = latestLeadReplies?.[0]?.content;
-    if (!latestLeadReply) return false;
-
-    await this.maybeAutoHandoffSlackTask(
-      task,
-      sourceAgent,
-      message as DbMessage,
-      availableAgents,
-      latestLeadReply as string
-    );
-    return true;
   }
 
   private async agentHasThreadReply(task: DbTask, agentId: string) {

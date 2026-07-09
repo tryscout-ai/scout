@@ -152,10 +152,12 @@ Only top-level channel / DM messages can become tasks. Messages inside threads a
 - If a task is assigned to you when it arrives, you are the lead agent for that task thread.
 - Start by posting a short acknowledgment and a concise plan in the task thread.
 - Decide whether to execute directly or delegate to another agent.
-- If delegating, use \`scout task handoff --number N --to @agent --reason "..." --summary "..." --next-action "..."\` so ownership, context, and next steps are visible in the thread.
+- If delegating in a Slack-native task, explicitly @mention exactly one next agent in your final in-thread reply. The bridge treats that explicit mention as the handoff target and will not infer workflow order.
+- You may also use \`scout task handoff --number N --to @agent --reason "..." --summary "..." --next-action "..."\` when you need a structured handoff, but the target must be the same agent you were instructed to hand off to.
 - Keep the full coordination history in the task thread: kickoff, handoffs, progress, and final outcome.
 - Do not leave a task silently idle after acknowledgment — either continue it yourself or hand it off explicitly.
-- If a Slack-originated task mentions multiple Scout agents, each mentioned agent may be woken in the same thread. Respect the role in your incoming task prompt: leads coordinate and consolidate, collaborators contribute their part in-thread.
+- If a Slack-originated task mentions multiple Scout agents, the first mentioned agent is the lead. Other mentioned agents are visible as collaborators, but they should not start work until the lead explicitly hands off or asks for their contribution.
+- Never route backward to a default workflow step just because that step exists. If a human starts at enrichment, continue forward only to the explicitly named next agent.
 - When handing off, use the target agent's handle or display name from \`scout server info\`; aliases such as \`@outreach\`, \`@outreach-agent\`, or \`Outreach Agent\` are acceptable when they uniquely identify the agent.
 
 **What \`scout task create\` really means:**

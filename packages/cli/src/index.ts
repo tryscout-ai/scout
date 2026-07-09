@@ -803,7 +803,7 @@ async function cmdTaskClaim(flags: Record<string, string>) {
     fail("INVALID_ARG", "Provide --number or --message-id");
   }
 
-  let query = supabase.from("tasks").select("id, task_number, assignee_id");
+  let query = supabase.from("tasks").select("id, task_number, status, assignee_id");
 
   if (taskNumber) {
     query = query.eq("task_number", taskNumber);
@@ -814,6 +814,9 @@ async function cmdTaskClaim(flags: Record<string, string>) {
   const { data: task } = await query.single();
 
   if (!task) fail("CLAIM_FAILED", "Task not found");
+  if (task.status === "done") {
+    fail("CLAIM_FAILED", `Task #${task.task_number} is already done`);
+  }
 
   if (task.assignee_id && task.assignee_id !== AGENT_ID) {
     const owner = await resolveSenderName(task.assignee_id, "agent");
@@ -823,16 +826,23 @@ async function cmdTaskClaim(flags: Record<string, string>) {
     );
   }
 
-  const { error } = await supabase
+  const { data: claimedTask, error } = await supabase
     .from("tasks")
     .update({
       assignee_id: AGENT_ID,
       assignee_type: "agent",
       status: "in_progress",
     })
-    .eq("id", task.id);
+    .eq("id", task.id)
+    .neq("status", "done")
+    .or(`assignee_id.is.null,assignee_id.eq.${AGENT_ID}`)
+    .select("id")
+    .maybeSingle();
 
   if (error) fail("CLAIM_FAILED", error.message);
+  if (!claimedTask) {
+    fail("CLAIM_FAILED", `Task #${task.task_number} was claimed by another agent`);
+  }
 
   console.log(`Task #${task.task_number} claimed and set to in_progress.`);
 }
@@ -914,11 +924,14 @@ async function cmdTaskHandoff(flags: Record<string, string>) {
 
   const { data: task } = await supabase
     .from("tasks")
-    .select("id, task_number, assignee_id, channel_id, message_id")
+    .select("id, task_number, status, assignee_id, channel_id, message_id")
     .eq("task_number", taskNumber)
     .single();
 
   if (!task) fail("HANDOFF_FAILED", "Task not found");
+  if (task.status === "done") {
+    fail("HANDOFF_FAILED", `Task #${task.task_number} is already done`);
+  }
   if (task.assignee_id !== AGENT_ID) {
     fail("HANDOFF_FAILED", "You are not the current assignee of this task");
   }
@@ -926,7 +939,7 @@ async function cmdTaskHandoff(flags: Record<string, string>) {
   const source = await resolveAgentByRef(AGENT_ID);
   const target = await resolveAgentByRef(targetAgentRef);
 
-  const { error: updateError } = await supabase
+  const { data: updatedTask, error: updateError } = await supabase
     .from("tasks")
     .update({
       assignee_id: target.id,
@@ -934,9 +947,16 @@ async function cmdTaskHandoff(flags: Record<string, string>) {
       status: "in_progress",
       updated_at: new Date().toISOString(),
     })
-    .eq("id", task.id);
+    .eq("id", task.id)
+    .eq("assignee_id", AGENT_ID)
+    .neq("status", "done")
+    .select("id")
+    .maybeSingle();
 
   if (updateError) fail("HANDOFF_FAILED", updateError.message);
+  if (!updatedTask) {
+    fail("HANDOFF_FAILED", "Task ownership changed before the handoff could be recorded");
+  }
 
   const handoffText =
     `Handoff: task #${task.task_number} moved from @${source.name} to @${target.name}.\n` +

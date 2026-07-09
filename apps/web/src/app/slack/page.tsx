@@ -7,11 +7,14 @@ import {
   ExternalLinkIcon,
   HashIcon,
   LayoutDashboardIcon,
+  PencilIcon,
   PlugIcon,
   RefreshCwIcon,
+  SaveIcon,
   Trash2Icon,
   WorkflowIcon,
   UsersIcon,
+  XIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -33,6 +36,7 @@ interface SlackAgent {
   name: string;
   display_name: string;
   description: string | null;
+  system_prompt: string | null;
   model: string;
   status: string;
   scout_channels?: Array<{ id: string; name: string }>;
@@ -85,6 +89,9 @@ export default function SlackPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
+  const [editingPromptAgentId, setEditingPromptAgentId] = useState<string | null>(null);
+  const [savingPromptAgentId, setSavingPromptAgentId] = useState<string | null>(null);
+  const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [copiedBridgeCommand, setCopiedBridgeCommand] = useState(false);
   const [serverUrl] = useState(() =>
@@ -209,6 +216,43 @@ export default function SlackPage() {
       setError(err instanceof Error ? err.message : "Could not onboard channel");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function startEditingPrompt(agent: SlackAgent) {
+    setEditingPromptAgentId(agent.id);
+    setPromptDrafts((prev) => ({
+      ...prev,
+      [agent.id]: agent.system_prompt || "",
+    }));
+  }
+
+  function cancelEditingPrompt(agentId: string) {
+    setEditingPromptAgentId(null);
+    setPromptDrafts((prev) => {
+      const next = { ...prev };
+      delete next[agentId];
+      return next;
+    });
+  }
+
+  async function saveSystemPrompt(agent: SlackAgent) {
+    setSavingPromptAgentId(agent.id);
+    setError("");
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ system_prompt: promptDrafts[agent.id] || "" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not update system prompt");
+      cancelEditingPrompt(agent.id);
+      await loadHome();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update system prompt");
+    } finally {
+      setSavingPromptAgentId(null);
     }
   }
 
@@ -523,6 +567,16 @@ export default function SlackPage() {
                             </div>
                           )}
                           <Button
+                            disabled={savingPromptAgentId === agent.id}
+                            onClick={() => startEditingPrompt(agent)}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            <PencilIcon />
+                            Edit prompt
+                          </Button>
+                          <Button
                             disabled={submitting || deletingAgentId === agent.id}
                             loading={deletingAgentId === agent.id}
                             onClick={() => deleteAgent(agent)}
@@ -535,6 +589,46 @@ export default function SlackPage() {
                           </Button>
                         </div>
                       </div>
+
+                      {editingPromptAgentId === agent.id && (
+                        <div className="mt-4 rounded-lg border bg-muted/30 p-3">
+                          <label className="flex flex-col gap-1.5 text-sm">
+                            System prompt
+                            <Textarea
+                              className="min-h-32 bg-background"
+                              onChange={(event) =>
+                                setPromptDrafts((prev) => ({
+                                  ...prev,
+                                  [agent.id]: event.target.value,
+                                }))
+                              }
+                              value={promptDrafts[agent.id] ?? ""}
+                            />
+                          </label>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button
+                              disabled={savingPromptAgentId === agent.id}
+                              loading={savingPromptAgentId === agent.id}
+                              onClick={() => saveSystemPrompt(agent)}
+                              size="sm"
+                              type="button"
+                            >
+                              <SaveIcon />
+                              Save prompt
+                            </Button>
+                            <Button
+                              disabled={savingPromptAgentId === agent.id}
+                              onClick={() => cancelEditingPrompt(agent.id)}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              <XIcon />
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="mt-4 flex flex-wrap gap-2">
                         <select

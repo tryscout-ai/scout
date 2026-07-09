@@ -210,7 +210,7 @@ export async function getSlackHome(userId: string) {
 
   const { data: agents } = await admin
     .from("agents")
-    .select("id, name, display_name, description, model, status, created_at")
+    .select("id, name, display_name, description, system_prompt, model, status, created_at")
     .eq("owner_id", userId)
     .eq("server_id", server.id)
     .order("created_at");
@@ -665,6 +665,40 @@ export async function getWorkspaceBotToken(workspaceId: string) {
   return decryptSecret(data?.bot_access_token_encrypted);
 }
 
+async function getInstalledAgentSlackApp(workspaceId: string, agentId: string) {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("slack_agent_apps")
+    .select("slack_bot_user_id, bot_access_token_encrypted, install_status")
+    .eq("workspace_id", workspaceId)
+    .eq("agent_id", agentId)
+    .maybeSingle();
+
+  if (!data || data.install_status !== "installed") {
+    throw new Error("Install this agent bot into Slack before onboarding a channel");
+  }
+
+  const token = decryptSecret(data.bot_access_token_encrypted);
+  if (!token) throw new Error("The installed Slack agent bot is missing its bot token. Reinstall the agent bot.");
+  return {
+    token,
+    botUserId: data.slack_bot_user_id as string | null,
+  };
+}
+
+async function slackPost<T extends SlackApiResponse>(url: string, token: string, body: Record<string, unknown>) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify(body),
+  });
+
+  return (await response.json()) as T;
+}
+
 export async function listSlackChannels(workspaceId: string) {
   const token = await getWorkspaceBotToken(workspaceId);
   if (!token) throw new Error("Connect Slack before loading channels");
@@ -690,6 +724,11 @@ export async function mapAgentToSlackChannel(params: {
 }) {
   const admin = createAdminClient();
   const channelName = `slack-${slugify(params.slackChannelName || params.slackChannelId)}`;
+  await ensureAgentBotInSlackChannel({
+    workspaceId: params.workspaceId,
+    agentId: params.agentId,
+    slackChannelId: params.slackChannelId,
+  });
 
   const { data: existingChannel } = await admin
     .from("channels")
@@ -724,17 +763,46 @@ export async function mapAgentToSlackChannel(params: {
     slack_channel_id: params.slackChannelId,
   }, { onConflict: "slack_team_id,slack_channel_id" });
 
-  const token = await getWorkspaceBotToken(params.workspaceId);
-  if (token) {
-    await fetch("https://slack.com/api/conversations.join", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json; charset=utf-8",
-      },
-      body: JSON.stringify({ channel: params.slackChannelId }),
-    }).catch(() => undefined);
+  return scoutChannel;
+}
+
+async function ensureAgentBotInSlackChannel(params: {
+  workspaceId: string;
+  agentId: string;
+  slackChannelId: string;
+}) {
+  const agentApp = await getInstalledAgentSlackApp(params.workspaceId, params.agentId);
+  const join = await slackPost<SlackApiResponse>(
+    "https://slack.com/api/conversations.join",
+    agentApp.token,
+    { channel: params.slackChannelId }
+  );
+
+  if (join.ok || join.error === "already_in_channel") return;
+
+  if (!agentApp.botUserId) {
+    throw new Error(`Could not add agent bot to Slack channel: ${join.error || "missing bot user id"}`);
   }
 
-  return scoutChannel;
+  const workspaceToken = await getWorkspaceBotToken(params.workspaceId);
+  if (!workspaceToken) {
+    throw new Error(`Could not add agent bot to Slack channel: ${join.error || "missing workspace bot token"}`);
+  }
+
+  const invite = await slackPost<SlackApiResponse>(
+    "https://slack.com/api/conversations.invite",
+    workspaceToken,
+    {
+      channel: params.slackChannelId,
+      users: agentApp.botUserId,
+    }
+  );
+
+  if (invite.ok || invite.error === "already_in_channel" || invite.error === "user_already_in_channel") return;
+
+  throw new Error(
+    invite.error === "missing_scope"
+      ? "Slack did not allow Scout to invite this agent bot. Reconnect Slack with invite permissions, or invite the bot manually once."
+      : `Could not invite agent bot to Slack channel: ${invite.error || join.error || "unknown Slack error"}`
+  );
 }

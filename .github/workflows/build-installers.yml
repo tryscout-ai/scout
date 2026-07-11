@@ -11,15 +11,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Prepare pnpm
+        run: corepack prepare pnpm@10 --activate
 
       - name: Verify pnpm
         run: |
-          which pnpm || where pnpm
           pnpm --version
 
       - name: Install dependencies

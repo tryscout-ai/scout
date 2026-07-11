@@ -1,7 +1,11 @@
 #!/usr/bin/env node
-
+import { loadConfig, saveConfig } from "./config.js";
 import { hostname, platform, arch } from "os";
 import { Bridge } from "./bridge.js";
+import { waitForPairing } from "./pairing-server.js";
+import { registerStartup } from "./startup.js";
+import os from "os";
+import path from "path";
 
 // Default server URL (can be overridden)
 const DEFAULT_SERVER_URL = "https://tryscout.ai";
@@ -62,22 +66,25 @@ function parseArgs(): { serverUrl: string; apiKey: string; agentsDir: string } {
   }
 
   if (!agentsDir) {
-    agentsDir = (process.env.SCOUT_AGENTS_DIR || "~/.scout/agents").replace(
-      "~",
-      process.env.HOME || ""
-    );
+    // agentsDir = (process.env.SCOUT_AGENTS_DIR || "~/.scout/agents").replace(
+    //   "~",
+    //   process.env.HOME || ""
+    // );
+    agentsDir =
+  process.env.SCOUT_AGENTS_DIR ||
+  path.join(os.homedir(), ".scout", "agents");
   }
 
-  if (!apiKey) {
-    console.error("  Error: --api-key is required.");
-    console.error("");
-    console.error("  Generate one at your workspace settings page,");
-    console.error("  then run:");
-    console.error("");
-    console.error("    npx @scout-ai/scout-bridge --api-key zk_your_key_here");
-    console.error("");
-    process.exit(1);
-  }
+  // if (!apiKey) {
+  //   console.error("  Error: --api-key is required.");
+  //   console.error("");
+  //   console.error("  Generate one at your workspace settings page,");
+  //   console.error("  then run:");
+  //   console.error("");
+  //   console.error("    npx @scout-ai/scout-bridge --api-key zk_your_key_here");
+  //   console.error("");
+  //   process.exit(1);
+  // }
 
   return { serverUrl: serverUrl.replace(/\/+$/, ""), apiKey, agentsDir };
 }
@@ -105,12 +112,14 @@ async function authenticate(
   return res.json();
 }
 
-async function main() {
-  const { serverUrl, apiKey, agentsDir } = parseArgs();
-
+async function runBridge(
+  serverUrl: string,
+  apiKey: string,
+  agentsDir: string
+) {
   console.log(`
   ╔══════════════════════════════════════╗
-  ║         Scout Local Bridge            ║
+  ║         Scout Local Bridge           ║
   ╚══════════════════════════════════════╝
 `);
   console.log(`  Server: ${serverUrl}`);
@@ -123,12 +132,16 @@ async function main() {
     console.error(
       `  Authentication failed: ${err instanceof Error ? err.message : err}`
     );
-    process.exit(1);
+    throw err;
   }
 
   console.log(`  Authenticated as user ${creds.userId.substring(0, 8)}...`);
   console.log(`  Workspace: ${creds.serverName}`);
-  console.log(`  Agents: ${creds.agents.map((a) => a.display_name).join(", ") || "none"}`);
+  console.log(
+    `  Agents: ${
+      creds.agents.map((a) => a.display_name).join(", ") || "none"
+    }`
+  );
   console.log(`  Agents dir: ${agentsDir}`);
   console.log("");
 
@@ -146,6 +159,44 @@ async function main() {
 
   bridge.start();
 
+  return bridge;
+}
+
+async function main() {
+  // const { serverUrl, apiKey, agentsDir } = parseArgs();
+  const cli = parseArgs();
+
+let config = loadConfig();
+
+if (cli.apiKey) {
+  config = {
+    serverUrl: cli.serverUrl,
+    apiKey: cli.apiKey,
+    agentsDir: cli.agentsDir,
+  };
+
+  saveConfig(config);
+}
+
+if (!config) {
+    console.log("Bridge not configured.");
+    console.log("Waiting for pairing...");
+
+    config = await waitForPairing();
+    await runBridge(
+    config.serverUrl,
+    config.apiKey,
+    config.agentsDir
+);
+    saveConfig(config);
+
+}
+
+const { serverUrl, apiKey, agentsDir } = config;
+
+const bridge = await runBridge(serverUrl, apiKey, agentsDir);
+
+await registerStartup();
   // Refresh auth token periodically (every 6 hours)
   const refreshInterval = setInterval(async () => {
     try {

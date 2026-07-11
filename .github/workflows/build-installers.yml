@@ -1,0 +1,104 @@
+name: Build Scout Bridge Installers
+
+on:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Bridge
+        run: pnpm --filter @scout-ai/scout-bridge build
+
+      - name: Build Windows Installer
+        shell: powershell
+        run: |
+          choco install innosetup -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ScoutBridge.iss
+
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScoutBridgeSetup
+          path: installer/output/ScoutBridgeSetup.exe
+
+  macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build Bridge
+        run: pnpm --filter @scout-ai/scout-bridge build
+
+      - name: Download Node.js runtime
+        shell: bash
+        run: |
+          rm -rf deploy/node
+          mkdir -p deploy/node
+
+          curl -L https://nodejs.org/dist/v22.22.0/node-v22.22.0-darwin-x64.tar.gz -o node.tar.gz
+
+          tar -xzf node.tar.gz
+
+          cp -R node-v22.22.0-darwin-x64/* deploy/node/
+
+      - name: Prepare deploy folder
+        shell: bash
+        run: |
+          rm -rf deploy/bridge
+          mkdir -p deploy/bridge
+          cp -R apps/bridge/dist deploy/bridge/
+          cp apps/bridge/package.json deploy/bridge/
+
+      - name: Build macOS Installer
+        shell: bash
+        run: |
+          chmod +x installer/mac/build.sh
+          chmod +x installer/mac/launch.sh
+
+          ./installer/mac/build.sh
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScoutBridgeDMG
+          path: apps/web/public/downloads/ScoutBridge.dmg
+
+  linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build Bridge
+        run: pnpm --filter @scout-ai/scout-bridge build

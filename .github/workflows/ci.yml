@@ -22,21 +22,16 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Lint has known pre-existing issues from a recent React 19 / Next 16 upgrade.
-      # Surface them in CI output but don't block the build until they're cleaned up.
-      # See CONTRIBUTING.md — this is a good first-issue opportunity.
       - name: Lint
         run: pnpm lint
         continue-on-error: true
@@ -44,8 +39,5 @@ jobs:
       - name: Build
         run: pnpm build
         env:
-          # The Next.js build reads these at compile time. CI uses placeholders
-          # since we're only checking that the build succeeds — no actual data
-          # access happens. Self-hosters set their real values in their deploy env.
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key

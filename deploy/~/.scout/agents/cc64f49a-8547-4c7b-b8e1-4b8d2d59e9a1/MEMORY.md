@@ -1,0 +1,11 @@
+# Lead Enrichment
+
+## Role
+Enrich lead as per instruction
+
+## Key Knowledge
+- No notes saved yet. Knowledge will accumulate through conversations.
+
+## Active Context
+- Status: First startup — no prior conversations.
+- Workspace initialized at: 2026-07-11

@@ -35,18 +35,33 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
       '@scout-ai/scout-bridge':
-        specifier: ^0.2.3
-        version: 0.2.7
+        specifier: ^0.2.8
+        version: 0.2.8
       '@scout-ai/scout-cli':
         specifier: ^0.1.0
         version: 0.1.0
       '@supabase/supabase-js':
         specifier: ^2.104.1
         version: 2.104.1
+      cors:
+        specifier: ^2.8.6
+        version: 2.8.6
+      express:
+        specifier: ^5.2.1
+        version: 5.2.1
+      open:
+        specifier: ^11.0.0
+        version: 11.0.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@types/cors':
+        specifier: ^2.8.19
+        version: 2.8.19
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
       '@types/node':
         specifier: ^20.19.39
         version: 20.19.39
@@ -1776,8 +1791,8 @@ packages:
   '@rushstack/eslint-patch@1.16.1':
     resolution: {integrity: sha512-TvZbIpeKqGQQ7X0zSCvPH9riMSFQFSggnfBjFZ1mEoILW+UuXCKwOoPcgjMwiUtRqFZ8jWhPJc4um14vC6I4ag==}
 
-  '@scout-ai/scout-bridge@0.2.7':
-    resolution: {integrity: sha512-2EK+EOj7Q8DWCkWOXOvoWVX9II/vUev8dpVLjvkr/rL+iNAxNqnYbNdfCZZyjeaVzlzSEgxWdxc9e/UmyIlXyw==}
+  '@scout-ai/scout-bridge@0.2.8':
+    resolution: {integrity: sha512-SyE+b++I94WfcMItJ4zk/8RQHXHAbZQ+2VcpxcHFXqAcmSvJ4m0NUhiolIqzvRZo47W9vBE5xIZ9GZ+cqI/5RQ==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -2273,6 +2288,9 @@ packages:
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
 
+  '@types/cors@2.8.19':
+    resolution: {integrity: sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg==}
+
   '@types/debug@4.1.13':
     resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
 
@@ -2305,6 +2323,9 @@ packages:
 
   '@types/express@4.17.25':
     resolution: {integrity: sha512-dVd04UKsfpINUnK0yBoYHDF3xu7xVH4BuDotC/xGuycx4CgbP48X/KF/586bcObxT0HENHXEU8Nqtu6NR+eKhw==}
+
+  '@types/express@5.0.6':
+    resolution: {integrity: sha512-sKYVuV7Sv9fbPIt/442koC7+IIwK5olP1KWeD88e/idgoJqDm3JV/YUiPwkoKK92ylff2MGxSz1CSjsXelx0YA==}
 
   '@types/file-saver@2.0.7':
     resolution: {integrity: sha512-dNKVfHd/jk0SkR/exKGj2ggkB45MAkzvWCaqLUUgkyjITkGNzH8H+yUwr+BLJUBjZOe9w8X3wgmXhZDRg1ED6A==}
@@ -2432,6 +2453,9 @@ packages:
 
   '@types/serve-static@1.15.10':
     resolution: {integrity: sha512-tRs1dB+g8Itk72rlSI2ZrW6vZg0YrLI81iQSTkMmOqnqCaNr/8Ek4VwWcN5vZgCYWbg/JJSGBlUaYGAOP73qBw==}
+
+  '@types/serve-static@2.2.0':
+    resolution: {integrity: sha512-8mam4H1NHLtu7nmtalF7eyBH14QyOASmcxHhSfEoRyr0nP/YdoesEtU+uSRvMe96TW/HPTtkoKqQLl53N7UXMQ==}
 
   '@types/set-cookie-parser@2.4.10':
     resolution: {integrity: sha512-GGmQVGpQWUe5qglJozEjZV/5dyxbOOZ0LHe/lqyWssB88Y4svNfst0uqBVscdDeIKl5Jy5+aPSvy7mI9tYRguw==}
@@ -9785,7 +9809,7 @@ snapshots:
 
   '@rushstack/eslint-patch@1.16.1': {}
 
-  '@scout-ai/scout-bridge@0.2.7':
+  '@scout-ai/scout-bridge@0.2.8':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
       '@scout-ai/scout-cli': 0.1.0
@@ -10345,6 +10369,10 @@ snapshots:
     dependencies:
       '@types/node': 20.19.39
 
+  '@types/cors@2.8.19':
+    dependencies:
+      '@types/node': 20.19.39
+
   '@types/debug@4.1.13':
     dependencies:
       '@types/ms': 2.1.0
@@ -10394,6 +10422,12 @@ snapshots:
       '@types/express-serve-static-core': 4.19.8
       '@types/qs': 6.15.0
       '@types/serve-static': 1.15.10
+
+  '@types/express@5.0.6':
+    dependencies:
+      '@types/body-parser': 1.19.6
+      '@types/express-serve-static-core': 5.1.1
+      '@types/serve-static': 2.2.0
 
   '@types/file-saver@2.0.7': {}
 
@@ -10517,13 +10551,18 @@ snapshots:
 
   '@types/serve-index@1.9.4':
     dependencies:
-      '@types/express': 4.17.25
+      '@types/express': 5.0.6
 
   '@types/serve-static@1.15.10':
     dependencies:
       '@types/http-errors': 2.0.5
       '@types/node': 20.19.39
       '@types/send': 0.17.6
+
+  '@types/serve-static@2.2.0':
+    dependencies:
+      '@types/http-errors': 2.0.5
+      '@types/node': 20.19.39
 
   '@types/set-cookie-parser@2.4.10':
     dependencies:

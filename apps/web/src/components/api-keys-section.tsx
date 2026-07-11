@@ -16,6 +16,7 @@ interface ApiKey {
 export function ApiKeysSection({ serverId }: { serverId: string }) {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [bridgeRunning, setBridgeRunning] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
@@ -40,9 +41,23 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
     }
     setLoading(false);
   }
+  async function checkBridge() {
+  try {
+    const res = await fetch("http://localhost:42137/status");
+
+    if (!res.ok) {
+      throw new Error();
+    }
+
+    setBridgeRunning(true);
+  } catch {
+    setBridgeRunning(false);
+  }
+}
 
   useEffect(() => {
     loadKeys();
+    checkBridge();
   }, [serverId]);
 
   async function handleCreate() {
@@ -57,12 +72,37 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
     });
 
     if (res.ok) {
-      const data = await res.json();
-      setRevealedKey(data.apiKey);
-      setNewKeyName("");
-      setShowForm(false);
-      loadKeys();
+  const data = await res.json();
+
+  try {
+    const pairResponse = await fetch("http://localhost:42137/pair", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        serverUrl,
+        apiKey: data.apiKey,
+      }),
+    });
+
+    if (!pairResponse.ok) {
+      throw new Error("Failed to pair bridge");
     }
+
+    alert("Bridge connected successfully!");
+
+    setNewKeyName("");
+    setShowForm(false);
+    loadKeys();
+  } catch (err) {
+    console.error(err);
+
+    alert(
+      "Scout Bridge is not running. Please start it and try again."
+    );
+  }
+}
     setCreating(false);
   }
 
@@ -80,18 +120,19 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  if (loading) {
-    return (
-      <div className="text-sm text-muted-foreground">Loading keys...</div>
-    );
-  }
+  // if (loading) {
+  //   return (
+  //     <div className="text-sm text-muted-foreground">Loading keys...</div>
+  //   );
+  // }
 
   return (
     <div className="w-full max-w-lg">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <KeyIcon className="size-4 text-muted-foreground" />
-          <h3 className="text-sm font-medium text-foreground">Bridge API Keys</h3>
+          {/* <h3 className="text-sm font-medium text-foreground">Bridge API Keys</h3> */}
+          <h3 className="text-sm font-medium text-foreground">Scout Bridge</h3>
         </div>
         {!showForm && (
           <Button
@@ -105,12 +146,28 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
         )}
       </div>
 
-      <p className="text-xs text-muted-foreground mb-4">
-        Generate an API key to connect your local bridge to this workspace.
-      </p>
+      <p className="text-xs text-muted-foreground mb-2">
+  Generate an API key to connect your local bridge to this workspace.
+</p>
+
+<p
+  className={`text-xs mb-4 ${
+    bridgeRunning ? "text-green-600" : "text-red-600"
+  }`}
+>
+  {bridgeRunning
+    ? "🟢 Scout Bridge is running"
+    : "🔴 Scout Bridge is not running"}
+</p>
+
+      <Button
+  onClick={() => window.open("/downloads/ScoutBridgeSetup.exe", "_blank")}
+>
+  Download Scout Bridge
+</Button>
 
       {/* Revealed key (shown once after creation) */}
-      {revealedKey && (
+      {/* {revealedKey && (
         <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3">
           <p className="text-xs font-medium text-foreground mb-2">
             Copy this key now — it won&apos;t be shown again.
@@ -146,7 +203,7 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
             Dismiss
           </Button>
         </div>
-      )}
+      )} */}
 
       {/* Create form */}
       {showForm && (

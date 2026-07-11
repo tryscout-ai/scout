@@ -8,19 +8,17 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Prepare pnpm
-        run: corepack prepare pnpm@10 --activate
+      - name: Install pnpm
+        run: npm install -g pnpm
 
       - name: Verify pnpm
-        run: |
-          pnpm --version
+        run: pnpm --version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -50,8 +48,14 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Verify pnpm
+        run: pnpm --version
+
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build Bridge
         run: pnpm --filter @scout-ai/scout-bridge build
@@ -63,7 +67,6 @@ jobs:
           mkdir -p deploy/node
 
           curl -L https://nodejs.org/dist/v22.22.0/node-v22.22.0-darwin-x64.tar.gz -o node.tar.gz
-
           tar -xzf node.tar.gz
 
           cp -R node-v22.22.0-darwin-x64/* deploy/node/
@@ -73,6 +76,7 @@ jobs:
         run: |
           rm -rf deploy/bridge
           mkdir -p deploy/bridge
+
           cp -R apps/bridge/dist deploy/bridge/
           cp apps/bridge/package.json deploy/bridge/
 
@@ -100,8 +104,14 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Verify pnpm
+        run: pnpm --version
+
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build Bridge
         run: pnpm --filter @scout-ai/scout-bridge build

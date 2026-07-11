@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KeyIcon, CopyIcon, CheckIcon, TrashIcon, PlusIcon } from "lucide-react";
 
+
 interface ApiKey {
   id: string;
   key_prefix: string;
@@ -161,7 +162,7 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
 </p>
 
       <Button
-  onClick={() => window.open("/downloads/ScoutBridgeSetup.exe", "_blank")}
+  onClick={() => window.open("/api/download/bridge", "_blank")}
 >
   Download Scout Bridge
 </Button>

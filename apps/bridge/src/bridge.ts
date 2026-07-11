@@ -87,6 +87,10 @@ interface SlackAgentAppToken {
   bot_access_token_encrypted: string | null;
 }
 
+interface SlackWorkspaceToken {
+  bot_access_token_encrypted: string | null;
+}
+
 interface SlackProgressNote {
   channelId: string;
   messageTs: string;
@@ -532,7 +536,7 @@ export class Bridge {
 
       if (existingReplyMapping) {
         if (reviewTask) {
-          const token = await this.resolveSlackAgentToken(msg.sender_id);
+          const token = await this.resolveSlackAgentToken(msg.sender_id, (existingReplyMapping as SlackMessageMapping).slack_team_id);
           const mapping = existingReplyMapping as SlackMessageMapping;
           await this.updateSlackMessage(
             mapping.slack_channel_id,
@@ -557,7 +561,7 @@ export class Bridge {
         return;
       }
 
-      const token = await this.resolveSlackAgentToken(msg.sender_id);
+      const token = await this.resolveSlackAgentToken(msg.sender_id, slackRef.slack_team_id);
       const slackTs = await this.postSlack(
         slackRef.slack_channel_id,
         fallbackText,
@@ -593,7 +597,7 @@ export class Bridge {
     }
   }
 
-  private async resolveSlackAgentToken(agentId: string) {
+  private async resolveSlackAgentToken(agentId: string, slackTeamId?: string | null) {
     const { data } = await this.supabase
       .from("slack_agent_apps")
       .select("bot_access_token_encrypted")
@@ -602,7 +606,17 @@ export class Bridge {
       .maybeSingle();
 
     const app = data as SlackAgentAppToken | null;
-    return decryptSlackSecret(app?.bot_access_token_encrypted);
+    const agentToken = decryptSlackSecret(app?.bot_access_token_encrypted);
+    if (agentToken || !slackTeamId) return agentToken;
+
+    const { data: workspace } = await this.supabase
+      .from("slack_workspaces")
+      .select("bot_access_token_encrypted")
+      .eq("slack_team_id", slackTeamId)
+      .maybeSingle();
+
+    const workspaceToken = workspace as SlackWorkspaceToken | null;
+    return decryptSlackSecret(workspaceToken?.bot_access_token_encrypted);
   }
 
   private async refreshChannelMembership(channelId: string): Promise<Set<string>> {
@@ -653,14 +667,14 @@ export class Bridge {
   private async postSlackProgressNote(task: DbTask, agentId: string, agentName: string): Promise<SlackProgressNote | null> {
     const { data } = await this.supabase
       .from("slack_message_mappings")
-      .select("slack_channel_id, slack_message_ts, slack_thread_ts")
+      .select("slack_team_id, slack_channel_id, slack_message_ts, slack_thread_ts")
       .eq("scout_message_id", task.message_id)
       .maybeSingle();
 
-    const slackRef = data as Pick<SlackMessageMapping, "slack_channel_id" | "slack_message_ts" | "slack_thread_ts"> | null;
+    const slackRef = data as SlackMessageMapping | null;
     if (!slackRef) return null;
 
-    const token = await this.resolveSlackAgentToken(agentId);
+    const token = await this.resolveSlackAgentToken(agentId, slackRef.slack_team_id);
     let messageTs: string | null = null;
     try {
       messageTs = await this.postSlack(

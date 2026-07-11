@@ -87,16 +87,27 @@ async function signingSecretForApp(apiAppId: string | undefined) {
   return decryptSecret(data?.signing_secret_encrypted);
 }
 
-async function botTokenForApp(apiAppId: string | undefined) {
-  if (!apiAppId) return null;
+async function botTokenForApp(apiAppId: string | undefined, teamId?: string) {
   const admin = createAdminClient();
-  const { data } = await admin
-    .from("slack_agent_apps")
+  if (apiAppId) {
+    const { data } = await admin
+      .from("slack_agent_apps")
+      .select("bot_access_token_encrypted")
+      .eq("slack_app_id", apiAppId)
+      .maybeSingle();
+
+    const agentToken = decryptSecret(data?.bot_access_token_encrypted);
+    if (agentToken) return agentToken;
+  }
+
+  if (!teamId) return null;
+  const { data: workspace } = await admin
+    .from("slack_workspaces")
     .select("bot_access_token_encrypted")
-    .eq("slack_app_id", apiAppId)
+    .eq("slack_team_id", teamId)
     .maybeSingle();
 
-  return decryptSecret(data?.bot_access_token_encrypted);
+  return decryptSecret(workspace?.bot_access_token_encrypted);
 }
 
 function defaultHumanId() {
@@ -492,7 +503,7 @@ async function submitRejectedDraft(payload: SlackInteractionPayload, metadata: D
 }
 
 async function handleSlackInteraction(payload: SlackInteractionPayload) {
-  const token = await botTokenForApp(payload.api_app_id);
+  const token = await botTokenForApp(payload.api_app_id, payload.team?.id);
   if (!token) throw new Error("Missing Slack bot token for interactive payload");
 
   if (payload.type === "block_actions") {

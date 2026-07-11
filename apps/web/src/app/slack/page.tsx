@@ -7,6 +7,7 @@ import {
   ExternalLinkIcon,
   HashIcon,
   LayoutDashboardIcon,
+  PlayCircleIcon,
   PencilIcon,
   PlugIcon,
   RefreshCwIcon,
@@ -94,6 +95,8 @@ export default function SlackPage() {
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [copiedBridgeCommand, setCopiedBridgeCommand] = useState(false);
+  const [demoChannelId, setDemoChannelId] = useState("");
+  const [demoSubmitting, setDemoSubmitting] = useState(false);
   const [serverUrl] = useState(() =>
     typeof window === "undefined" ? "" : window.location.origin
   );
@@ -219,6 +222,32 @@ export default function SlackPage() {
     }
   }
 
+  async function setupDemoChannel() {
+    const channel = channels.find((item) => item.id === demoChannelId);
+    if (!channel) return;
+
+    setDemoSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch("/api/slack/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          demo: true,
+          slack_channel_id: channel.id,
+          slack_channel_name: channel.name,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not set up hosted demo");
+      await loadHome();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not set up hosted demo");
+    } finally {
+      setDemoSubmitting(false);
+    }
+  }
+
   function startEditingPrompt(agent: SlackAgent) {
     setEditingPromptAgentId(agent.id);
     setPromptDrafts((prev) => ({
@@ -340,9 +369,9 @@ export default function SlackPage() {
               <h1 className="font-semibold text-2xl text-foreground">
                 {activeView === "dashboard" ? "Slack Dashboard" : "Slack Agents"}
               </h1>
-              <p className="mt-1 text-muted-foreground text-sm">
-                Connect a workspace, onboard agent bots, and map them into Slack channels.
-              </p>
+	              <p className="mt-1 text-muted-foreground text-sm">
+	                Connect Slack, choose one channel, and launch a hosted multi-agent demo without installing a bridge.
+	              </p>
             </div>
             <div className="flex items-center gap-2">
               <Button onClick={loadHome} size="sm" variant="outline">
@@ -409,16 +438,59 @@ export default function SlackPage() {
                 </div>
               </section>
 
-              <section className="rounded-lg border bg-card p-4">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <div className="mb-2 flex items-center gap-2">
-                      <h2 className="font-medium text-foreground">Slack bridge</h2>
-                      {home?.bridgeKey.online ? <Badge variant="success">Online</Badge> : <Badge variant="warning">Offline</Badge>}
-                    </div>
-                    <p className="text-muted-foreground text-sm">
-                      Slack-native agents run from the Slack Agents server, so they need this bridge even when another Scout bridge is online.
-                    </p>
+	              <section className="rounded-lg border bg-card p-4">
+	                <div className="flex flex-wrap items-start justify-between gap-4">
+	                  <div className="max-w-2xl">
+	                    <div className="mb-2 flex items-center gap-2">
+	                      <h2 className="font-medium text-foreground">Hosted Slack demo</h2>
+	                      {home?.bridgeKey.online ? <Badge variant="success">Managed bridge online</Badge> : <Badge variant="warning">Managed bridge offline</Badge>}
+	                    </div>
+	                    <p className="text-muted-foreground text-sm">
+	                      This hackathon path creates Research, Enrichment, Outreach, and Reviewer agents for one Slack channel. Judges only install the Slack app and mention Scout in that channel.
+	                    </p>
+	                    <ol className="mt-3 grid gap-1 text-muted-foreground text-sm">
+	                      <li>1. Connect Slack.</li>
+	                      <li>2. Pick a public demo channel, ideally #scout-demo.</li>
+	                      <li>3. In Slack, mention Scout with a lead, company, or task.</li>
+	                    </ol>
+	                  </div>
+	                  <div className="flex min-w-72 flex-col gap-2">
+	                    <select
+	                      className="h-9 rounded-lg border border-input bg-background px-2 text-sm"
+	                      disabled={!home?.workspace || channels.length === 0}
+	                      onChange={(event) => setDemoChannelId(event.target.value)}
+	                      value={demoChannelId}
+	                    >
+	                      <option value="">Choose demo channel</option>
+	                      {channels.map((channel) => (
+	                        <option key={channel.id} value={channel.id}>
+	                          #{channel.name}{channel.is_private ? " (private)" : ""}
+	                        </option>
+	                      ))}
+	                    </select>
+	                    <Button
+	                      disabled={!home?.workspace || !demoChannelId || demoSubmitting}
+	                      loading={demoSubmitting}
+	                      onClick={setupDemoChannel}
+	                      type="button"
+	                    >
+	                      <PlayCircleIcon />
+	                      Set up hosted demo
+	                    </Button>
+	                  </div>
+	                </div>
+	              </section>
+
+	              <section className="rounded-lg border bg-card p-4">
+	                <div className="flex flex-wrap items-start justify-between gap-4">
+	                  <div>
+	                    <div className="mb-2 flex items-center gap-2">
+	                      <h2 className="font-medium text-foreground">Bridge status</h2>
+	                      {home?.bridgeKey.online ? <Badge variant="success">Online</Badge> : <Badge variant="warning">Offline</Badge>}
+	                    </div>
+	                    <p className="text-muted-foreground text-sm">
+	                      Public testers should not run this. For the hackathon, keep one managed bridge running from your deployment host with this workspace's bridge key.
+	                    </p>
                     {isLocalServer && (
                       <p className="mt-2 text-muted-foreground text-xs">
                         Local development uses the workspace bridge script so Slack agents run the source code in this repo.

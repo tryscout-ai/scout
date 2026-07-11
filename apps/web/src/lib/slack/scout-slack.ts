@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret } from "@/lib/slack/crypto";
+import { SLACK_DEMO_AGENT_HANDLES } from "@/lib/slack/platform";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
@@ -481,16 +482,33 @@ async function resolveSlackAssignee(
     .eq("channel_id", scoutChannelId)
     .eq("member_type", "agent");
 
-  if (!memberships || memberships.length !== 1) {
+  if (!memberships || memberships.length === 0) {
     return { agentId: null, assigneeName: null, assigneeHandle: null };
   }
 
-  const agentId = memberships[0].member_id as string;
-  const { data: agent } = await admin
+  const memberIds = memberships.map((membership) => membership.member_id as string);
+  const { data: channelAgents } = await admin
     .from("agents")
-    .select("name, display_name")
-    .eq("id", agentId)
-    .single();
+    .select("id, name, display_name")
+    .in("id", memberIds);
+
+  const demoLead = (channelAgents || []).find(
+    (agent) => agent.display_name === SLACK_DEMO_AGENT_HANDLES.research
+  );
+  if (demoLead) {
+    return {
+      agentId: demoLead.id as string,
+      assigneeName: demoLead.display_name as string,
+      assigneeHandle: demoLead.name as string,
+    };
+  }
+
+  if (memberships.length !== 1) {
+    return { agentId: null, assigneeName: null, assigneeHandle: null };
+  }
+
+  const agentId = memberIds[0];
+  const agent = (channelAgents || []).find((item) => item.id === agentId);
 
   return {
     agentId,
@@ -682,6 +700,14 @@ export async function postTaskCreatedToSlack(ref: SlackMessageRef, result: Slack
       .eq("install_status", "installed")
       .maybeSingle();
     token = decryptSecret(app?.bot_access_token_encrypted);
+  }
+  if (!token) {
+    const { data: workspace } = await admin
+      .from("slack_workspaces")
+      .select("bot_access_token_encrypted")
+      .eq("slack_team_id", ref.teamId)
+      .maybeSingle();
+    token = decryptSecret(workspace?.bot_access_token_encrypted);
   }
 
   const collaboratorNames = result.collaborators

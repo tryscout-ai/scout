@@ -25,6 +25,44 @@ interface SlackApiResponse {
   error?: string;
 }
 
+export const SLACK_DEMO_AGENT_HANDLES = {
+  research: "Research Agent",
+  enrichment: "Enrichment Agent",
+  outreach: "Outreach Agent",
+  reviewer: "Reviewer Agent",
+} as const;
+
+const SLACK_DEMO_AGENT_CONFIGS = [
+  {
+    key: "research",
+    displayName: SLACK_DEMO_AGENT_HANDLES.research,
+    description: "Finds the important facts and frames the task for the team.",
+    systemPrompt:
+      "You are Research Agent in the hosted Scout Slack demo. For Slack tasks, post a concise research summary in the task thread, then explicitly @mention Enrichment Agent as the next agent. Do not draft outreach copy yourself.",
+  },
+  {
+    key: "enrichment",
+    displayName: SLACK_DEMO_AGENT_HANDLES.enrichment,
+    description: "Turns research into useful context, angles, and constraints.",
+    systemPrompt:
+      "You are Enrichment Agent in the hosted Scout Slack demo. Use the thread context to enrich the lead or request with concrete angles, audience context, and useful constraints. Then explicitly @mention Outreach Agent as the next agent. Do not produce the final outreach draft yourself.",
+  },
+  {
+    key: "outreach",
+    displayName: SLACK_DEMO_AGENT_HANDLES.outreach,
+    description: "Writes the final human-reviewable outreach draft.",
+    systemPrompt:
+      "You are Outreach Agent in the hosted Scout Slack demo. Use the research and enrichment thread context to write exactly one concise final outreach draft. Do not include multiple options or labels like 'Outreach Agent:'. After posting the draft, update the task status to in_review so Slack shows Approve, Edit, and Reject buttons.",
+  },
+  {
+    key: "reviewer",
+    displayName: SLACK_DEMO_AGENT_HANDLES.reviewer,
+    description: "Checks quality when explicitly asked before a human approves.",
+    systemPrompt:
+      "You are Reviewer Agent in the hosted Scout Slack demo. When explicitly mentioned, check whether the draft is clear, specific, and safe to send. Keep feedback concise and actionable.",
+  },
+] as const;
+
 function slackManifestErrorMessage(error?: string) {
   if (error === "invalid_auth" || error === "token_expired") {
     return "SCOUT_SLACK_APP_CONFIG_TOKEN was rejected by Slack. Refresh the Slack app configuration token in apps/web/.env.local, then restart pnpm dev:web.";
@@ -92,6 +130,10 @@ function slugify(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+function demoAgentName(userId: string, key: string) {
+  return `demo-${key}-${userId.substring(0, 8)}`;
 }
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
@@ -467,6 +509,50 @@ export async function createScoutAgent(params: {
   return agent;
 }
 
+export async function ensureSlackDemoAgents(userId: string) {
+  const admin = createAdminClient();
+  const server = await ensureSlackServer(userId);
+  const agents = [];
+
+  for (const config of SLACK_DEMO_AGENT_CONFIGS) {
+    const name = demoAgentName(userId, config.key);
+    const { data: existing, error: existingError } = await admin
+      .from("agents")
+      .select("*")
+      .eq("server_id", server.id)
+      .eq("name", name)
+      .maybeSingle();
+
+    if (existingError) throw new Error(existingError.message);
+
+    const agent = existing || (await admin
+      .from("agents")
+      .insert({
+        name,
+        display_name: config.displayName,
+        description: config.description,
+        system_prompt: config.systemPrompt,
+        model: "opus",
+        status: "offline",
+        owner_id: userId,
+        server_id: server.id,
+      })
+      .select("*")
+      .single()).data;
+
+    if (!agent) throw new Error(`Could not create ${config.displayName}`);
+    await admin.from("server_members").upsert({
+      server_id: server.id,
+      member_id: agent.id,
+      member_type: "agent",
+      role: "member",
+    });
+    agents.push(agent);
+  }
+
+  return { server, agents };
+}
+
 export async function deleteScoutAgent(agentId: string) {
   const admin = createAdminClient();
 
@@ -766,6 +852,62 @@ export async function mapAgentToSlackChannel(params: {
   return scoutChannel;
 }
 
+export async function mapDemoAgentsToSlackChannel(params: {
+  userId: string;
+  workspaceId: string;
+  serverId: string;
+  agents: Array<{ id: string }>;
+  slackTeamId: string;
+  slackChannelId: string;
+  slackChannelName: string;
+}) {
+  const admin = createAdminClient();
+  const channelName = `slack-${slugify(params.slackChannelName || params.slackChannelId)}`;
+  await ensureWorkspaceBotInSlackChannel({
+    workspaceId: params.workspaceId,
+    slackChannelId: params.slackChannelId,
+  });
+
+  const { data: existingChannel } = await admin
+    .from("channels")
+    .select("id")
+    .eq("server_id", params.serverId)
+    .eq("name", channelName)
+    .maybeSingle();
+
+  const scoutChannel = existingChannel || (await admin
+    .from("channels")
+    .insert({
+      name: channelName,
+      description: `Hosted Scout demo channel for Slack #${params.slackChannelName}`,
+      type: "public",
+      server_id: params.serverId,
+      created_by: params.userId,
+    })
+    .select("id")
+    .single()).data;
+
+  if (!scoutChannel) throw new Error("Could not create Scout demo channel");
+
+  await admin.from("channel_members").upsert([
+    { channel_id: scoutChannel.id, member_id: params.userId, member_type: "human" },
+    ...params.agents.map((agent) => ({
+      channel_id: scoutChannel.id,
+      member_id: agent.id,
+      member_type: "agent",
+    })),
+  ]);
+
+  await admin.from("slack_channel_mappings").upsert({
+    server_id: params.serverId,
+    scout_channel_id: scoutChannel.id,
+    slack_team_id: params.slackTeamId,
+    slack_channel_id: params.slackChannelId,
+  }, { onConflict: "slack_team_id,slack_channel_id" });
+
+  return scoutChannel;
+}
+
 async function ensureAgentBotInSlackChannel(params: {
   workspaceId: string;
   agentId: string;
@@ -804,5 +946,27 @@ async function ensureAgentBotInSlackChannel(params: {
     invite.error === "missing_scope"
       ? "Slack did not allow Scout to invite this agent bot. Reconnect Slack with invite permissions, or invite the bot manually once."
       : `Could not invite agent bot to Slack channel: ${invite.error || join.error || "unknown Slack error"}`
+  );
+}
+
+async function ensureWorkspaceBotInSlackChannel(params: {
+  workspaceId: string;
+  slackChannelId: string;
+}) {
+  const token = await getWorkspaceBotToken(params.workspaceId);
+  if (!token) throw new Error("Connect Slack before onboarding a demo channel");
+
+  const join = await slackPost<SlackApiResponse>(
+    "https://slack.com/api/conversations.join",
+    token,
+    { channel: params.slackChannelId }
+  );
+
+  if (join.ok || join.error === "already_in_channel") return;
+
+  throw new Error(
+    join.error === "method_not_supported_for_channel_type"
+      ? "Invite Scout to this private channel in Slack, then run demo setup again."
+      : `Could not join Slack channel: ${join.error || "unknown Slack error"}`
   );
 }

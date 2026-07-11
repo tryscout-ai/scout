@@ -9,6 +9,7 @@
     "dev:bridge": "pnpm --filter @scout-ai/scout-bridge dev",
     "dev:slack:bridge": "node scripts/dev-slack-bridge.mjs",
     "dev:slack:ngrok": "node scripts/dev-slack-ngrok.mjs",
+    "start:hosted-demo-bridges": "node scripts/hosted-demo-bridges.mjs",
     "db:generate": "pnpm --filter @scout/db generate",
     "db:push": "pnpm --filter @scout/db push"
   },

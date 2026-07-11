@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import {
+  ensureSlackDemoAgents,
   ensureSlackServer,
   getSlackHome,
   listSlackChannels,
   mapAgentToSlackChannel,
+  mapDemoAgentsToSlackChannel,
 } from "@/lib/slack/platform";
 
 export async function GET() {
@@ -38,8 +40,9 @@ export async function POST(request: NextRequest) {
   const agentId = String(body.agent_id || "");
   const slackChannelId = String(body.slack_channel_id || "");
   const slackChannelName = String(body.slack_channel_name || slackChannelId);
+  const demo = Boolean(body.demo);
 
-  if (!agentId || !slackChannelId) {
+  if ((!demo && !agentId) || !slackChannelId) {
     return NextResponse.json({ error: "agent_id and slack_channel_id are required" }, { status: 400 });
   }
 
@@ -47,6 +50,20 @@ export async function POST(request: NextRequest) {
     const server = await ensureSlackServer(user.id);
     const home = await getSlackHome(user.id);
     if (!home.workspace) return NextResponse.json({ error: "Connect Slack first" }, { status: 400 });
+
+    if (demo) {
+      const demoTeam = await ensureSlackDemoAgents(user.id);
+      await mapDemoAgentsToSlackChannel({
+        userId: user.id,
+        workspaceId: home.workspace.id,
+        serverId: server.id,
+        agents: demoTeam.agents,
+        slackTeamId: home.workspace.slack_team_id,
+        slackChannelId,
+        slackChannelName,
+      });
+      return NextResponse.json({ ok: true, agents: demoTeam.agents.length });
+    }
 
     await mapAgentToSlackChannel({
       userId: user.id,

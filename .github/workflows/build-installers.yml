@@ -79,6 +79,7 @@ jobs:
 
           cp -R apps/bridge/dist deploy/bridge/
           cp apps/bridge/package.json deploy/bridge/
+          cp -R apps/bridge/node_modules deploy/bridge/
 
       - name: Build macOS Installer
         shell: bash

@@ -87,12 +87,6 @@ jobs:
           chmod +x installer/mac/launch.sh
           ./installer/mac/build.sh
 
-      - name: Copy DMG to website
-        shell: bash
-        run: |
-          mkdir -p apps/web/public/downloads
-          cp installer/mac/ScoutBridge.dmg apps/web/public/downloads/ScoutBridge.dmg
-
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:

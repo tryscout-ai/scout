@@ -66,10 +66,10 @@ jobs:
           rm -rf deploy/node
           mkdir -p deploy/node
 
-          curl -L https://nodejs.org/dist/v22.22.0/node-v22.22.0-darwin-x64.tar.gz -o node.tar.gz
+          curl -L https://nodejs.org/dist/v22.22.0/node-v22.22.0-darwin-arm64.tar.gz -o node.tar.gz
           tar -xzf node.tar.gz
 
-          cp -R node-v22.22.0-darwin-x64/* deploy/node/
+          cp -R node-v22.22.0-darwin-arm64/* deploy/node/
 
       - name: Prepare deploy folder
         shell: bash

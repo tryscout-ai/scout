@@ -443,10 +443,10 @@ export default function SlackPage() {
 	                  <div className="max-w-2xl">
 	                    <div className="mb-2 flex items-center gap-2">
 	                      <h2 className="font-medium text-foreground">Hosted Slack demo</h2>
-	                      {home?.bridgeKey.online ? <Badge variant="success">Managed bridge online</Badge> : <Badge variant="warning">Managed bridge offline</Badge>}
+	                      {home?.bridgeKey.online ? <Badge variant="success">Managed bridge online</Badge> : <Badge variant="success">Server fallback ready</Badge>}
 	                    </div>
 	                    <p className="text-muted-foreground text-sm">
-	                      This hackathon path creates Research, Enrichment, Outreach, and Reviewer agents for one Slack channel. Judges only install the Slack app and mention Scout in that channel.
+	                      This hackathon path creates Research, Enrichment, Outreach, and Reviewer agents for one Slack channel. Judges only install the Slack app and mention Scout in that channel; if the managed bridge is offline, Scout uses the server fallback for the demo flow.
 	                    </p>
 	                    <ol className="mt-3 grid gap-1 text-muted-foreground text-sm">
 	                      <li>1. Connect Slack.</li>
@@ -489,7 +489,7 @@ export default function SlackPage() {
 	                      {home?.bridgeKey.online ? <Badge variant="success">Online</Badge> : <Badge variant="warning">Offline</Badge>}
 	                    </div>
 	                    <p className="text-muted-foreground text-sm">
-	                      Public testers should not run this. For the hackathon, keep one managed bridge running from your deployment host with this workspace's bridge key.
+	                      Public testers should not run this. A managed bridge gives the full Codex runner experience; the hosted demo also has a server fallback so judging does not depend on manual bridge startup.
 	                    </p>
                     {isLocalServer && (
                       <p className="mt-2 text-muted-foreground text-xs">

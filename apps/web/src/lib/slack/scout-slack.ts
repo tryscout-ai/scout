@@ -19,6 +19,8 @@ interface SlackPostMessageResponse {
   ts?: string;
 }
 
+type SlackBlock = Record<string, unknown>;
+
 interface SlackAgentMention {
   id: string;
   name: string;
@@ -144,6 +146,36 @@ export async function postSlackMessage(channel: string, text: string, threadTs?:
     body: JSON.stringify({
       channel,
       text,
+      thread_ts: threadTs || undefined,
+      unfurl_links: false,
+      unfurl_media: false,
+    }),
+  });
+
+  const body = (await response.json()) as SlackPostMessageResponse;
+  if (!body.ok) {
+    throw new Error(body.error || "Slack chat.postMessage failed");
+  }
+  return body.ts || null;
+}
+
+async function postSlackMessageWithBlocks(
+  channel: string,
+  text: string,
+  blocks: SlackBlock[],
+  threadTs: string | null,
+  token: string
+) {
+  const response = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      channel,
+      text,
+      blocks,
       thread_ts: threadTs || undefined,
       unfurl_links: false,
       unfurl_media: false,
@@ -729,6 +761,228 @@ export async function postTaskCreatedToSlack(ref: SlackMessageRef, result: Slack
 
   const ts = await postSlackMessage(ref.channelId, text, ref.threadTs || ref.messageTs || result.slackThreadTs, token || undefined);
   return ts;
+}
+
+function truncateSlackText(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function demoDraftBlocks(params: {
+  agentName: string;
+  taskNumber: number;
+  taskId: string;
+  scoutMessageId: string;
+  draft: string;
+}): SlackBlock[] {
+  const actionValue = JSON.stringify({
+    taskId: params.taskId,
+    scoutMessageId: params.scoutMessageId,
+  });
+
+  return [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: truncateSlackText(`Draft ready for review - Task #${params.taskNumber}`, 150),
+        emoji: true,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${params.agentName} drafted:*\n${truncateSlackText(params.draft, 2800)}`,
+      },
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Approve", emoji: true },
+          style: "primary",
+          action_id: "scout_draft_approve",
+          value: actionValue,
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Edit", emoji: true },
+          action_id: "scout_draft_edit",
+          value: actionValue,
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Reject", emoji: true },
+          style: "danger",
+          action_id: "scout_draft_reject",
+          value: actionValue,
+        },
+      ],
+    },
+  ];
+}
+
+function demoReplyText(sourceText: string, agentName: string) {
+  const request = truncateSlackText(sourceText.replace(/\s+/g, " ").trim(), 500);
+
+  if (agentName === SLACK_DEMO_AGENT_HANDLES.research) {
+    return [
+      "Research summary:",
+      `- Request: ${request}`,
+      "- Signal: the company is actively feeling pain around outbound personalization and sales execution.",
+      "- Suggested path: qualify the lead, enrich the pain points, then prepare one concise outreach draft.",
+      "",
+      "@Enrichment Agent can turn this into sharper buyer context and angles.",
+    ].join("\n");
+  }
+
+  if (agentName === SLACK_DEMO_AGENT_HANDLES.enrichment) {
+    return [
+      "Enrichment notes:",
+      "- Likely buyer: founder or early GTM lead trying to scale outbound beyond founder-led selling.",
+      "- Strong angle: reduce manual personalization time while keeping messages specific to recent hiring and growth signals.",
+      "- Risk to avoid: sounding like a generic AI prospecting pitch.",
+      "",
+      "@Outreach Agent please draft one short message for human review.",
+    ].join("\n");
+  }
+
+  return [
+    "Hi there, saw that you are scaling outbound and hiring your first SDR while experimenting with AI for prospecting.",
+    "",
+    "Scout could help your team turn public buying signals into specific, reviewable outreach drafts without losing the founder-led tone that worked early on.",
+    "",
+    "Worth a quick look this week?",
+  ].join("\n");
+}
+
+export async function runHostedSlackDemoFallback(ref: SlackMessageRef, result: SlackTaskResult) {
+  const admin = createAdminClient();
+  const bridgeOnline = await isBridgeRecentlyOnline(admin, result.serverId);
+  if (bridgeOnline !== false) return false;
+
+  const { data: existingReplies } = await admin
+    .from("messages")
+    .select("id")
+    .eq("thread_parent_id", result.messageId)
+    .eq("sender_type", "agent")
+    .limit(1);
+  if (existingReplies && existingReplies.length > 0) return false;
+
+  const { data: memberships } = await admin
+    .from("channel_members")
+    .select("member_id")
+    .eq("channel_id", result.scoutChannelId)
+    .eq("member_type", "agent");
+  const memberIds = (memberships || []).map((membership) => membership.member_id as string);
+  if (memberIds.length === 0) return false;
+
+  const { data: agents } = await admin
+    .from("agents")
+    .select("id, name, display_name")
+    .in("id", memberIds);
+  const agentsByDisplayName = new Map(
+    (agents || []).map((agent) => [agent.display_name as string, agent])
+  );
+  const demoAgents = [
+    SLACK_DEMO_AGENT_HANDLES.research,
+    SLACK_DEMO_AGENT_HANDLES.enrichment,
+    SLACK_DEMO_AGENT_HANDLES.outreach,
+  ].map((name) => agentsByDisplayName.get(name));
+
+  if (demoAgents.some((agent) => !agent)) return false;
+
+  const { data: workspace } = await admin
+    .from("slack_workspaces")
+    .select("bot_access_token_encrypted")
+    .eq("slack_team_id", ref.teamId)
+    .maybeSingle();
+  const token = decryptSecret(workspace?.bot_access_token_encrypted);
+  if (!token) return false;
+
+  const { data: taskMessage, error: taskMessageError } = await admin
+    .from("messages")
+    .select("content")
+    .eq("id", result.messageId)
+    .maybeSingle();
+  if (taskMessageError || !taskMessage) return false;
+
+  const threadTs = ref.threadTs || ref.messageTs || result.slackThreadTs;
+  let outreachMessageId: string | null = null;
+  let outreachDraft = "";
+
+  for (const agent of demoAgents) {
+    if (!agent) continue;
+    const agentName = agent.display_name as string;
+    const content = demoReplyText(taskMessage.content as string, agentName);
+    const { data: inserted, error } = await admin
+      .from("messages")
+      .insert({
+        channel_id: result.scoutChannelId,
+        sender_id: agent.id,
+        sender_type: "agent",
+        content,
+        thread_parent_id: result.messageId,
+      })
+      .select("id")
+      .single();
+    if (error || !inserted) throw new Error(error?.message || "Could not create hosted demo reply");
+
+    if (agentName === SLACK_DEMO_AGENT_HANDLES.outreach) {
+      outreachMessageId = inserted.id as string;
+      outreachDraft = content;
+      continue;
+    }
+
+    await postSlackMessage(ref.channelId, `*${agentName}:*\n${content}`, threadTs, token);
+  }
+
+  const outreach = demoAgents[2];
+  if (!outreach || !outreachMessageId) return false;
+
+  const slackDraftTs = await postSlackMessageWithBlocks(
+    ref.channelId,
+    `Draft ready for review from ${SLACK_DEMO_AGENT_HANDLES.outreach} for task #${result.taskNumber}:\n${outreachDraft}`,
+    demoDraftBlocks({
+      agentName: SLACK_DEMO_AGENT_HANDLES.outreach,
+      taskNumber: result.taskNumber,
+      taskId: result.taskId,
+      scoutMessageId: outreachMessageId,
+      draft: outreachDraft,
+    }),
+    threadTs,
+    token
+  );
+
+  if (slackDraftTs) {
+    await admin.from("slack_message_mappings").upsert({
+      scout_message_id: outreachMessageId,
+      slack_team_id: ref.teamId,
+      slack_channel_id: ref.channelId,
+      slack_message_ts: slackDraftTs,
+      slack_thread_ts: threadTs,
+    });
+  }
+
+  await admin
+    .from("tasks")
+    .update({
+      assignee_id: outreach.id,
+      assignee_type: "agent",
+      status: "in_review",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", result.taskId);
+
+  console.log("[Slack] Hosted demo fallback completed", {
+    taskId: result.taskId,
+    taskNumber: result.taskNumber,
+    scoutChannelId: result.scoutChannelId,
+  });
+
+  return true;
 }
 
 export async function mapSlackMessageToScout(params: {

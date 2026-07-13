@@ -5,10 +5,12 @@ import {
   ensureSlackDemoAgents,
   ensureSlackServer,
   getSlackHome,
+  getWorkspaceBotToken,
   listSlackChannels,
   mapAgentToSlackChannel,
   mapDemoAgentsToSlackChannel,
 } from "@/lib/slack/platform";
+import { postSlackMessage } from "@/lib/slack/scout-slack";
 
 export async function GET() {
   const supabase = await createClient();
@@ -62,6 +64,23 @@ export async function POST(request: NextRequest) {
         slackChannelId,
         slackChannelName,
       });
+      const token = await getWorkspaceBotToken(home.workspace.id);
+      if (!token) {
+        return NextResponse.json(
+          { error: "Demo setup saved, but Scout could not post to Slack because the workspace bot token is missing. Reconnect Slack and try again." },
+          { status: 500 }
+        );
+      }
+      await postSlackMessage(
+        slackChannelId,
+        [
+          "Scout hosted demo is ready.",
+          "",
+          "Mention @Scout in this channel with a lead or task. If the managed bridge is offline, the server fallback will still run Research, Enrichment, and Outreach here for the demo.",
+        ].join("\n"),
+        null,
+        token
+      );
       return NextResponse.json({ ok: true, agents: demoTeam.agents.length });
     }
 

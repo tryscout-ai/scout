@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createTaskFromSlackMessage,
   postTaskCreatedToSlack,
+  runHostedSlackDemoFallback,
   verifySlackRequest,
 } from "@/lib/slack/scout-slack";
 
@@ -82,15 +83,16 @@ export async function POST(request: NextRequest) {
       });
 
       if (result.created) {
-        await postTaskCreatedToSlack(
-          {
-            teamId: payload.team.id,
-            channelId: payload.channel.id,
-            messageTs: payload.message.ts,
-            threadTs: payload.message.thread_ts || payload.message.ts,
-          },
-          result
-        );
+        const ref = {
+          teamId: payload.team.id,
+          channelId: payload.channel.id,
+          messageTs: payload.message.ts,
+          threadTs: payload.message.thread_ts || payload.message.ts,
+        };
+        const fallbackHandled = await runHostedSlackDemoFallback(ref, result);
+        if (!fallbackHandled) {
+          await postTaskCreatedToSlack(ref, result);
+        }
       }
     } catch (err) {
       console.error("[Slack] Message action failed:", err);
@@ -121,15 +123,16 @@ export async function POST(request: NextRequest) {
     });
 
     if (result.created) {
-      await postTaskCreatedToSlack(
-        {
-          teamId: body.team_id,
-          channelId: event.channel,
-          messageTs: event.ts,
-          threadTs: event.thread_ts || event.ts,
-        },
-        result
-      );
+      const ref = {
+        teamId: body.team_id,
+        channelId: event.channel,
+        messageTs: event.ts,
+        threadTs: event.thread_ts || event.ts,
+      };
+      const fallbackHandled = await runHostedSlackDemoFallback(ref, result);
+      if (!fallbackHandled) {
+        await postTaskCreatedToSlack(ref, result);
+      }
     }
   } catch (err) {
     console.error("[Slack] Event handling failed:", err);

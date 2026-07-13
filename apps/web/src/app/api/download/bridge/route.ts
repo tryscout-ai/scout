@@ -1,11 +1,43 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET() {
-  const download = process.platform === "win32"
-    ? "http://localhost:3000/downloads/ScoutBridgeSetup.exe"
-    : process.platform === "darwin"
-      ? "http://localhost:3000/downloads/ScoutBridge.dmg"
-      : "http://localhost:3000/downloads/ScoutBridge.AppImage";
+function detectPlatform(request: NextRequest) {
+  const explicitPlatform = request.nextUrl.searchParams
+    .get("platform")
+    ?.toLowerCase();
 
-  return NextResponse.redirect(download);
+  if (explicitPlatform === "mac" || explicitPlatform === "darwin") {
+    return "darwin";
+  }
+
+  if (explicitPlatform === "windows" || explicitPlatform === "win32") {
+    return "win32";
+  }
+
+  if (explicitPlatform === "linux") {
+    return "linux";
+  }
+
+  const userAgent = request.headers.get("user-agent")?.toLowerCase() ?? "";
+
+  if (userAgent.includes("mac os x") || userAgent.includes("macintosh")) {
+    return "darwin";
+  }
+
+  if (userAgent.includes("windows")) {
+    return "win32";
+  }
+
+  return "linux";
+}
+
+export async function GET(request: NextRequest) {
+  const platform = detectPlatform(request);
+  const downloadPath =
+    platform === "win32"
+      ? "/downloads/ScoutBridgeSetup.exe"
+      : platform === "darwin"
+        ? "/downloads/ScoutBridge.dmg"
+        : "/downloads/ScoutBridge.AppImage";
+
+  return NextResponse.redirect(new URL(downloadPath, request.url));
 }

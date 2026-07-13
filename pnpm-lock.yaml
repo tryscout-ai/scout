@@ -34,34 +34,16 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
-      '@scout-ai/scout-bridge':
-        specifier: ^0.2.8
-        version: 0.2.8
       '@scout-ai/scout-cli':
         specifier: ^0.1.0
         version: 0.1.0
       '@supabase/supabase-js':
         specifier: ^2.104.1
         version: 2.104.1
-      cors:
-        specifier: ^2.8.6
-        version: 2.8.6
-      express:
-        specifier: ^5.2.1
-        version: 5.2.1
-      open:
-        specifier: ^11.0.0
-        version: 11.0.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
-      '@types/cors':
-        specifier: ^2.8.19
-        version: 2.8.19
-      '@types/express':
-        specifier: ^5.0.6
-        version: 5.0.6
       '@types/node':
         specifier: ^20.19.39
         version: 20.19.39
@@ -1791,11 +1773,6 @@ packages:
   '@rushstack/eslint-patch@1.16.1':
     resolution: {integrity: sha512-TvZbIpeKqGQQ7X0zSCvPH9riMSFQFSggnfBjFZ1mEoILW+UuXCKwOoPcgjMwiUtRqFZ8jWhPJc4um14vC6I4ag==}
 
-  '@scout-ai/scout-bridge@0.2.8':
-    resolution: {integrity: sha512-SyE+b++I94WfcMItJ4zk/8RQHXHAbZQ+2VcpxcHFXqAcmSvJ4m0NUhiolIqzvRZo47W9vBE5xIZ9GZ+cqI/5RQ==}
-    engines: {node: '>=20'}
-    hasBin: true
-
   '@scout-ai/scout-cli@0.1.0':
     resolution: {integrity: sha512-N3dFjbST0sibS3E/N13iBlBHuHYTmBg66PhvNqdHtq/UuvEbzGdmFE/eiUC84Anwu78mg+hECbyn5a18VAA7wQ==}
     engines: {node: '>=20'}
@@ -2287,9 +2264,6 @@ packages:
 
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
-
-  '@types/cors@2.8.19':
-    resolution: {integrity: sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg==}
 
   '@types/debug@4.1.13':
     resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
@@ -9809,16 +9783,6 @@ snapshots:
 
   '@rushstack/eslint-patch@1.16.1': {}
 
-  '@scout-ai/scout-bridge@0.2.8':
-    dependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
-      '@scout-ai/scout-cli': 0.1.0
-      '@supabase/supabase-js': 2.106.1
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - supports-color
-
   '@scout-ai/scout-cli@0.1.0':
     dependencies:
       '@supabase/supabase-js': 2.106.1
@@ -10366,10 +10330,6 @@ snapshots:
       '@types/node': 20.19.39
 
   '@types/connect@3.4.38':
-    dependencies:
-      '@types/node': 20.19.39
-
-  '@types/cors@2.8.19':
     dependencies:
       '@types/node': 20.19.39
 

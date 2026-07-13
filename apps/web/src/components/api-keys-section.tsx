@@ -166,6 +166,10 @@ export function ApiKeysSection({ serverId }: { serverId: string }) {
 >
   Download Scout Bridge
 </Button>
+<p className="mt-2 text-xs text-muted-foreground">
+  After opening Scout Bridge, return here and create a key to connect it.
+  It runs quietly in the background.
+</p>
 
       {/* Revealed key (shown once after creation) */}
       {/* {revealedKey && (

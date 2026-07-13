@@ -25,17 +25,11 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@scout-ai/scout-bridge": "^0.2.8",
     "@scout-ai/scout-cli": "^0.1.0",
     "@supabase/supabase-js": "^2.104.1",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "open": "^11.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
     "@types/node": "^20.19.39",
     "tsx": "^4.19.0",
     "typescript": "^6.0.3"

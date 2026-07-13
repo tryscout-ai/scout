@@ -475,37 +475,38 @@ async function resolveSlackAssignee(
       .single();
 
     if (agentError || !agent) {
-      throw new Error(
-        `${configuredAgentSource || "Configured Slack lead agent"}=${configuredAgentId} does not match a Scout agent`
+      console.warn(
+        `[Slack] ${configuredAgentSource || "Configured Slack lead agent"}=${configuredAgentId} does not match a Scout agent; falling back to channel lead resolution.`
       );
+    } else {
+      const { data: membership } = await admin
+        .from("channel_members")
+        .select("channel_id")
+        .eq("channel_id", scoutChannelId)
+        .eq("member_id", configuredAgentId)
+        .eq("member_type", "agent")
+        .maybeSingle();
+
+      console.log("[Slack] Lead agent resolution", {
+        configuredAgentSource,
+        configuredAgentId,
+        scoutChannelId,
+        membershipFound: Boolean(membership),
+      });
+
+      if (!membership) {
+        console.warn(
+          `[Slack] ${configuredAgentSource || "Configured Slack lead agent"}=${configuredAgentId} is not a member of Scout channel ${scoutChannelId}; falling back to channel lead resolution.`
+        );
+      } else {
+        return {
+          agentId: agent.id as string,
+          assigneeName: agent.display_name as string,
+          assigneeHandle: agent.name as string,
+        };
+      }
+
     }
-
-    const { data: membership } = await admin
-      .from("channel_members")
-      .select("channel_id")
-      .eq("channel_id", scoutChannelId)
-      .eq("member_id", configuredAgentId)
-      .eq("member_type", "agent")
-      .single();
-
-    console.log("[Slack] Lead agent resolution", {
-      configuredAgentSource,
-      configuredAgentId,
-      scoutChannelId,
-      membershipFound: Boolean(membership),
-    });
-
-    if (!membership) {
-      throw new Error(
-        `${configuredAgentSource || "Configured Slack lead agent"}=${configuredAgentId} is not a member of Scout channel ${scoutChannelId}`
-      );
-    }
-
-    return {
-      agentId: agent.id as string,
-      assigneeName: agent.display_name as string,
-      assigneeHandle: agent.name as string,
-    };
   }
 
   const { data: memberships } = await admin

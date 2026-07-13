@@ -87,8 +87,6 @@ export async function POST() {
           threadTs: message.thread_ts || message.ts,
         });
 
-        if (!result.created) continue;
-
         const ref = {
           teamId: home.workspace.slack_team_id,
           channelId,
@@ -96,10 +94,10 @@ export async function POST() {
           threadTs: message.thread_ts || message.ts,
         };
         const fallbackHandled = await runHostedSlackDemoFallback(ref, result, { force: true });
-        if (!fallbackHandled) {
+        if (!fallbackHandled && result.created) {
           await postTaskCreatedToSlack(ref, result);
         }
-        processed += 1;
+        if (result.created || fallbackHandled) processed += 1;
       }
     }
 

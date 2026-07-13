@@ -16,9 +16,6 @@
     <key>RunAtLoad</key>
     <true/>
 
-    <key>KeepAlive</key>
-    <true/>
-
     <key>StandardOutPath</key>
     <string>__LOG_DIR__/bridge.log</string>
 

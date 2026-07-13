@@ -25,6 +25,13 @@ async function registerMacStartup() {
     return;
   }
 
+  if (script.includes("/AppTranslocation/")) {
+    console.log(
+      "Scout Bridge is running from a translocated DMG path; skipping LaunchAgent registration. Move the app to /Applications for startup registration."
+    );
+    return;
+  }
+
   const launchAgentsDir = join(homedir(), "Library", "LaunchAgents");
   const logDir = join(homedir(), "Library", "Logs", "Scout Bridge");
   const plistPath = join(launchAgentsDir, `${LABEL}.plist`);
@@ -47,8 +54,6 @@ async function registerMacStartup() {
   <key>WorkingDirectory</key>
   <string>${escapePlist(dirname(script))}</string>
   <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
   <string>${escapePlist(join(logDir, "bridge.log"))}</string>

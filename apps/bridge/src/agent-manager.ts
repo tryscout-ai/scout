@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
+import { mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync } from "fs";
 import { join, resolve, dirname, delimiter } from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "node:module";
@@ -7,6 +7,7 @@ import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { normalizeLegacyBranding } from "./branding.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { spawnSync } from "child_process";
+import { homedir } from "os";
 
 type AgentActivity = "idle" | "thinking" | "working" | "error";
 
@@ -68,6 +69,31 @@ function resolveExecutable(name: string) {
     command: name,
     argsPrefix: [],
   };
+}
+
+function getLoginShellPath(extraPaths: string[] = []) {
+  const paths = [
+    ...extraPaths,
+    process.env.PATH ?? "",
+    dirname(process.execPath),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+  ];
+
+  const nvmVersionsDir = join(homedir(), ".nvm", "versions", "node");
+  if (existsSync(nvmVersionsDir)) {
+    for (const version of readdirSync(nvmVersionsDir)) {
+      paths.push(join(nvmVersionsDir, version, "bin"));
+    }
+  }
+
+  return Array.from(
+    new Set(paths.flatMap((entry) => entry.split(delimiter)).filter(Boolean))
+  ).join(delimiter);
 }
 
 export class AgentManager {
@@ -227,40 +253,36 @@ export class AgentManager {
   }
 
   private ensureCodexLoggedIn(env: NodeJS.ProcessEnv) {
-  const status = spawnSync("cmd.exe", [
-    "/d",
-    "/s",
-    "/c",
-    "codex",
-    "login",
-    "status",
-  ], {
-    env,
-    encoding: "utf8",
-    windowsHide: true,
-  });
+  const { command, argsPrefix } = resolveExecutable(CODEX_COMMAND);
+  const status =
+    process.platform === "win32"
+      ? spawnSync(
+          "cmd.exe",
+          ["/d", "/s", "/c", command, ...argsPrefix, "login", "status"],
+          {
+            env,
+            encoding: "utf8",
+            windowsHide: true,
+          }
+        )
+      : spawnSync(command, [...argsPrefix, "login", "status"], {
+          env,
+          encoding: "utf8",
+        });
 
   if (status.status === 0) {
     return;
   }
 
-  console.log("Codex not logged in. Launching login...");
+  const detail =
+    status.error?.message ||
+    status.stderr?.trim() ||
+    status.stdout?.trim() ||
+    "Codex is not logged in.";
 
-  const login = spawnSync("cmd.exe", [
-    "/d",
-    "/s",
-    "/c",
-    "codex",
-    "login",
-  ], {
-    env,
-    stdio: "inherit",
-    windowsHide: false,
-  });
-
-  if (login.status !== 0) {
-    throw new Error("Codex login failed.");
-  }
+  throw new Error(
+    `Codex login is not available to the bridge. Run "codex login" in Terminal first.\n${detail}`
+  );
 }
 
   /**
@@ -530,7 +552,7 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
       const req = createRequire(import.meta.url);
       const cliPath = req.resolve("@scout/scout-cli/dist/index.js");
       // Published mode: use node to run compiled JS directly
-      wrapperBody = `#!/usr/bin/env bash\nexec node '${cliPath.replace(/'/g, "'\\''")}' "$@"\n`;
+      wrapperBody = `#!/usr/bin/env bash\nexec '${process.execPath.replace(/'/g, "'\\''")}' '${cliPath.replace(/'/g, "'\\''")}' "$@"\n`;
       console.log(`  [${session.displayName}] CLI resolved from npm package: ${cliPath}`);
     } catch {
       // Fall back to monorepo dev path (TypeScript source via tsx)
@@ -571,7 +593,7 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
           SCOUT_SUPABASE_URL: this.supabaseUrl,
           SCOUT_SUPABASE_KEY: this.supabaseKey,
           SCOUT_AUTH_TOKEN: this.authToken,
-          PATH: `${scoutDir}:${process.env.PATH ?? ""}`,
+          PATH: getLoginShellPath([scoutDir]),
         },
         stdio: ["ignore", "ignore", "pipe"],
       });
@@ -648,9 +670,9 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
         SCOUT_AGENT_ID: agentId,
         SCOUT_SUPABASE_URL: this.supabaseUrl,
         SCOUT_SUPABASE_KEY: this.supabaseKey,
-        SCOUT_AUTH_TOKEN: this.authToken,
-        // Prepend .scout/ to PATH so `scout` command is available
-        PATH: `${scoutDir}:${process.env.PATH ?? ""}`,
+      SCOUT_AUTH_TOKEN: this.authToken,
+      // Prepend .scout/ to PATH so `scout` command is available
+        PATH: getLoginShellPath([scoutDir]),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -760,10 +782,7 @@ ${userMessage}`;
       SCOUT_SUPABASE_URL: this.supabaseUrl,
       SCOUT_SUPABASE_KEY: this.supabaseKey,
       SCOUT_AUTH_TOKEN: this.authToken,
-      PATH: [
-        join(session.workDir, ".scout"),
-        process.env.PATH ?? "",
-      ].join(delimiter),
+      PATH: getLoginShellPath([join(session.workDir, ".scout")]),
     };
 
     this.ensureCodexLoggedIn(runnerEnv);

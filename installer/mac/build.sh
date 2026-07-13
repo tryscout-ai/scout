@@ -68,7 +68,7 @@ cp "$ROOT/apps/bridge/package.json" "$APP_DIR/Contents/Resources/bridge/package.
 
 (
   cd "$APP_DIR/Contents/Resources/bridge"
-  npm install --omit=dev --ignore-scripts --package-lock=false
+  npm install --omit=dev --ignore-scripts --package-lock=false --prefer-offline --no-audit --no-fund
 )
 
 find "$APP_DIR/Contents/Resources/bridge" \

@@ -858,10 +858,16 @@ function demoReplyText(sourceText: string, agentName: string) {
   ].join("\n");
 }
 
-export async function runHostedSlackDemoFallback(ref: SlackMessageRef, result: SlackTaskResult) {
+export async function runHostedSlackDemoFallback(
+  ref: SlackMessageRef,
+  result: SlackTaskResult,
+  options: { force?: boolean } = {}
+) {
   const admin = createAdminClient();
-  const bridgeOnline = await isBridgeRecentlyOnline(admin, result.serverId);
-  if (bridgeOnline !== false) return false;
+  if (!options.force) {
+    const bridgeOnline = await isBridgeRecentlyOnline(admin, result.serverId);
+    if (bridgeOnline !== false) return false;
+  }
 
   const { data: existingReplies } = await admin
     .from("messages")

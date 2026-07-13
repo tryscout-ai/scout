@@ -18,7 +18,7 @@ import {
   XIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -97,6 +97,7 @@ export default function SlackPage() {
   const [copiedBridgeCommand, setCopiedBridgeCommand] = useState(false);
   const [demoChannelId, setDemoChannelId] = useState("");
   const [demoSubmitting, setDemoSubmitting] = useState(false);
+  const pollingSlackRef = useRef(false);
   const [serverUrl] = useState(() =>
     typeof window === "undefined" ? "" : window.location.origin
   );
@@ -138,6 +139,21 @@ export default function SlackPage() {
     }
   }
 
+  async function pollSlackMentions() {
+    if (pollingSlackRef.current) return;
+    pollingSlackRef.current = true;
+    try {
+      const res = await fetch("/api/slack/poll", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not poll Slack");
+      if (data.processed > 0) await loadHome();
+    } catch (err) {
+      console.warn("[Slack] Poll failed:", err);
+    } finally {
+      pollingSlackRef.current = false;
+    }
+  }
+
   useEffect(() => {
     loadHome();
   }, []);
@@ -145,6 +161,17 @@ export default function SlackPage() {
   useEffect(() => {
     if (home?.workspace) loadChannels();
   }, [home?.workspace?.id]);
+
+  useEffect(() => {
+    if (!home?.workspace || (home.channelMappings.length || 0) === 0) return;
+
+    pollSlackMentions();
+    const interval = window.setInterval(() => {
+      pollSlackMentions();
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [home?.workspace?.id, home?.channelMappings.length]);
 
   const appsByAgent = useMemo(() => {
     const map = new Map<string, SlackAgentApp>();
@@ -241,6 +268,7 @@ export default function SlackPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not set up hosted demo");
       await loadHome();
+      await pollSlackMentions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not set up hosted demo");
     } finally {

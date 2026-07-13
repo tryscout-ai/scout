@@ -265,6 +265,43 @@ export class Bridge {
     console.log(`  Loaded ${this.agentRecords.size} agent(s) from database.`);
   }
 
+  private async loadAgentIfManaged(agentId: string): Promise<DbAgent | null> {
+    const existing = this.agentRecords.get(agentId);
+    if (existing) return existing;
+
+    const { data: agent, error } = await this.supabase
+      .from("agents")
+      .select("*")
+      .eq("id", agentId)
+      .eq("owner_id", this.config.userId)
+      .eq("server_id", this.config.serverId)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        `  [Bridge] Could not load agent ${agentId}:`,
+        error.message
+      );
+      return null;
+    }
+
+    if (!agent) return null;
+
+    const managedAgent = agent as DbAgent;
+    console.log(
+      `  [Bridge] Loaded agent on demand: ${managedAgent.display_name}`
+    );
+    this.agentRecords.set(managedAgent.id, managedAgent);
+    await this.agentManager.initAgent(managedAgent.id, managedAgent);
+    await this.supabase
+      .from("agents")
+      .update({ status: "online" })
+      .eq("id", managedAgent.id);
+    this.updatePresence();
+
+    return managedAgent;
+  }
+
   private async loadChannelMemberships() {
     const agentIds = Array.from(this.agentRecords.keys());
     if (agentIds.length === 0) return;
@@ -822,6 +859,7 @@ export class Bridge {
             return;
           }
 
+          await this.loadAgentIfManaged(collaborator.agent_id);
           await this.dispatchTaskToAgent(task as DbTask, collaborator.agent_id, "lead");
         }
       )
@@ -847,6 +885,7 @@ export class Bridge {
         async (payload) => {
           const handoff = payload.new as DbAgentHandoff;
           if (!handoff.target_agent_id) return;
+          await this.loadAgentIfManaged(handoff.target_agent_id);
 
           const { data: task, error } = await this.supabase
             .from("tasks")
@@ -1257,7 +1296,7 @@ export class Bridge {
     }
 
     for (const agentId of respondingAgentIds) {
-      const agent = this.agentRecords.get(agentId);
+      const agent = await this.loadAgentIfManaged(agentId);
       if (!agent) continue;
 
       console.log(
@@ -1307,8 +1346,12 @@ export class Bridge {
       .select("agent_id, role")
       .eq("task_id", task.id);
 
-    const localCollaborators = ((collaborators || []) as Array<{ agent_id: string; role: "lead" | "collaborator" }>)
-      .filter((collaborator) => this.agentRecords.has(collaborator.agent_id));
+    const localCollaborators: Array<{ agent_id: string; role: "lead" | "collaborator" }> = [];
+    for (const collaborator of (collaborators || []) as Array<{ agent_id: string; role: "lead" | "collaborator" }>) {
+      if (await this.loadAgentIfManaged(collaborator.agent_id)) {
+        localCollaborators.push(collaborator);
+      }
+    }
 
     const leadCollaborators = localCollaborators.filter((collaborator) => collaborator.role === "lead");
     if (leadCollaborators.length > 0) {
@@ -1323,7 +1366,13 @@ export class Bridge {
     }
 
     if (task.assignee_type === "agent" && task.assignee_id) {
-      if (!this.agentRecords.has(task.assignee_id)) return;
+      const agent = await this.loadAgentIfManaged(task.assignee_id);
+      if (!agent) {
+        console.log(
+          `  [Bridge] Task #${task.task_number} is assigned to agent ${task.assignee_id}, but this bridge does not manage that agent.`
+        );
+        return;
+      }
       if (
         task.status === "in_review" &&
         await this.agentHasThreadReply(task, task.assignee_id)
@@ -1413,11 +1462,14 @@ export class Bridge {
     handoff?: { reason: string; summary: string; nextAction: string },
     force = false
   ) {
-    if (!this.agentRecords.has(targetAgentId)) return;
+    const agent = await this.loadAgentIfManaged(targetAgentId);
+    if (!agent) {
+      console.log(
+        `  [Bridge] Dispatch skipped for task #${task.task_number}: this bridge does not manage agent ${targetAgentId}.`
+      );
+      return;
+    }
     if (!force && this.hasDispatchedTask(task.id, targetAgentId)) return;
-
-    const agent = this.agentRecords.get(targetAgentId);
-    if (!agent) return;
 
     const { data: currentTask, error: currentTaskError } = await this.supabase
       .from("tasks")

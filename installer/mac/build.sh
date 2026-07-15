@@ -10,6 +10,7 @@ STAGE_DIR="$MAC_DIR/build/dmg"
 NODE_CACHE_DIR="$MAC_DIR/.cache/node"
 DMG_NAME="ScoutBridge.dmg"
 DMG_PATH="$ROOT/apps/web/public/downloads/$DMG_NAME"
+DMG_TMP_PATH="$ROOT/apps/web/public/downloads/ScoutBridge.tmp.dmg"
 NODE_VERSION="${NODE_VERSION:-$(node -p 'process.version')}"
 SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:-}"
 
@@ -34,6 +35,20 @@ download_node() {
     tar -xJf "$archive_path" -C "$NODE_CACHE_DIR"
   fi
 
+  if [ ! -x "$extract_dir/bin/node" ]; then
+    if [ "$arch" = "$(node -p 'process.arch')" ]; then
+      local local_node
+      local_node="$(command -v node)"
+      echo "Using local Node binary for $platform: $local_node"
+      rm -rf "$extract_dir"
+      mkdir -p "$extract_dir/bin"
+      cp "$local_node" "$extract_dir/bin/node"
+    else
+      echo "Warning: Node runtime for $platform is unavailable; skipping this architecture."
+      return 0
+    fi
+  fi
+
   mkdir -p "$APP_DIR/Contents/Resources/node/$platform"
   cp -R "$extract_dir/." "$APP_DIR/Contents/Resources/node/$platform/"
 }
@@ -55,7 +70,7 @@ sign_path() {
 
 echo "Cleaning Mac installer build..."
 rm -rf "$MAC_DIR/build"
-rm -f "$DMG_PATH"
+rm -f "$DMG_TMP_PATH"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
 echo "Building bridge TypeScript..."
@@ -130,7 +145,9 @@ hdiutil create \
   -srcfolder "$STAGE_DIR" \
   -ov \
   -format UDZO \
-  "$DMG_PATH"
+  "$DMG_TMP_PATH"
+
+mv "$DMG_TMP_PATH" "$DMG_PATH"
 
 if [ -n "$SIGNING_IDENTITY" ]; then
   echo "Signing DMG..."

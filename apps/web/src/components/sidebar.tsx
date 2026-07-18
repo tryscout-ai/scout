@@ -70,7 +70,6 @@ export function Sidebar({
   const [showServerMenu, setShowServerMenu] = useState(false);
   const [servers, setServers] = useState<Server[]>([]);
   const [machineKeys, setMachineKeys] = useState<MachineKey[]>([]);
-  // Heartbeat-based online status (bridge updates last_used_at every 30s)
   const [bridgeOnline, setBridgeOnline] = useState(false);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [selectedMachine, setSelectedMachine] = useState<MachineKey | null>(null);
@@ -118,23 +117,6 @@ export function Sidebar({
         .in("id", serverIds)
         .order("created_at");
       if (allServers) setServers(allServers as Server[]);
-    }
-
-    // Load machine keys for this server
-    const { data: keys } = await supabase
-      .from("machine_keys")
-      .select("id, name, key_prefix, key_value, last_used_at")
-      .eq("server_id", serverId)
-      .eq("user_id", user.id)
-      .order("created_at");
-    if (keys) {
-      setMachineKeys(keys as MachineKey[]);
-      // Check online status based on heartbeat (last_used_at within 60 seconds = online)
-      const now = Date.now();
-      const hasRecentHeartbeat = (keys as MachineKey[]).some(
-        (k) => k.last_used_at && now - new Date(k.last_used_at).getTime() < 60_000
-      );
-      setBridgeOnline(hasRecentHeartbeat);
     }
 
     // Get all channels in this server that the user is a member of

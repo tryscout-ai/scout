@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ApiKeysSection } from "@/components/api-keys-section";
 import { SetupWizard } from "@/components/setup-wizard";
 
 interface ServerStats {
@@ -137,10 +136,6 @@ export default function ServerHomePage() {
           Select an agent or channel from the sidebar to start a conversation.
         </p>
 
-        {/* API Keys Section */}
-        <div className="flex justify-center">
-          <ApiKeysSection serverId={stats.id} />
-        </div>
       </div>
 
       {/* Setup wizard (shown after workspace creation) */}

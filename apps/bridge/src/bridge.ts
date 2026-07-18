@@ -3,6 +3,8 @@ import { readdir, readFile, stat, lstat } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import { AgentManager } from "./agent-manager.js";
+import { CodexProvider } from "./providers/codex-provider.js";
+import { OpenAIProvider } from "./providers/openai-provider.js";
 
 interface BridgeConfig {
   supabaseUrl: string;
@@ -71,13 +73,21 @@ export class Bridge {
     });
     // Set auth token for Realtime WebSocket (global headers only cover REST)
     this.supabase.realtime.setAuth(config.authToken);
-    this.agentManager = new AgentManager(
-      config.agentsDir,
-      this.supabase,
-      config.supabaseUrl,
-      config.supabaseKey,
-      config.authToken
-    );
+    
+
+const llmProvider = new OpenAIProvider({
+    apiKey: process.env.OPENAI_API_KEY!,
+    baseURL: process.env.OPENAI_BASE_URL,
+});
+
+this.agentManager = new AgentManager(
+    config.agentsDir,
+    this.supabase,
+    config.supabaseUrl,
+    config.supabaseKey,
+    config.authToken,
+    llmProvider
+);
   }
 
   /** Update the auth token (called on periodic refresh) */

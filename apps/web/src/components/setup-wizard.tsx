@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -22,14 +22,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Field, FieldLabel } from "@/components/ui/field";
-import {
-  CheckIcon,
-  CopyIcon,
-  DownloadIcon,
-  LoaderIcon,
-  MonitorIcon,
-  TerminalIcon,
-} from "lucide-react";
+import { TerminalIcon } from "lucide-react";
 
 interface SetupWizardProps {
   serverId: string;
@@ -46,15 +39,7 @@ const MODEL_ITEMS = [
 type Step = "connect" | "connected" | "create-agent";
 
 export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardProps) {
-  const [step, setStep] = useState<Step>("connect");
-  const [apiKey, setApiKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [pairing, setPairing] = useState(false);
-  const [pairError, setPairError] = useState("");
-  const [machineName, setMachineName] = useState("");
-  const [serverUrl] = useState(() =>
-    typeof window === "undefined" ? "" : window.location.origin
-  );
+  const [step] = useState<Step>("create-agent");
 
   // Create agent form
   const [agentName, setAgentName] = useState("");
@@ -65,63 +50,6 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
   const [agentError, setAgentError] = useState("");
 
   const router = useRouter();
-  const pollRef = useRef<ReturnType<typeof setInterval>>(null);
-
-  // Load API key from sessionStorage
-  useEffect(() => {
-    const storedKey = sessionStorage.getItem("scout_setup_key");
-    if (storedKey) {
-      setApiKey(storedKey);
-      sessionStorage.removeItem("scout_setup_key");
-    }
-  }, []);
-
-  // Poll for bridge connection (check if the key's last_used_at becomes non-null)
-  useEffect(() => {
-    if (step !== "connect" || !apiKey) return;
-
-    const keyPrefix = apiKey.substring(0, 11); // "zk_" + first 8 hex chars
-
-    async function checkConnection() {
-      try {
-        const res = await fetch(`/api/bridge/keys?server_id=${serverId}`);
-        if (!res.ok) return;
-        const { keys } = await res.json();
-        const matchedKey = keys.find(
-          (k: { key_prefix: string; last_used_at: string | null }) =>
-            k.key_prefix === keyPrefix
-        );
-        if (matchedKey?.last_used_at) {
-          setMachineName(matchedKey.name || "");
-          setStep("connected");
-        }
-      } catch {
-        // Ignore poll errors
-      }
-    }
-
-    // Check immediately, then poll every 3 seconds
-    checkConnection();
-    pollRef.current = setInterval(checkConnection, 3000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [step, apiKey, serverId]);
-
-  const npxCommand = apiKey
-    ? [
-        "npx @scout-ai/scout-bridge",
-        serverUrl ? `--server-url ${serverUrl}` : "",
-        `--api-key ${apiKey}`,
-      ].filter(Boolean).join(" ")
-    : "";
-
-  async function handleCopy() {
-    if (!npxCommand) return;
-    await navigator.clipboard.writeText(npxCommand);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
 
   function handleDownloadBridge() {
     window.open("/api/download/bridge", "_blank");
@@ -204,6 +132,7 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
   return (
     <Dialog open onOpenChange={(open) => { if (!open) handleSkip(); }}>
       <DialogPopup showCloseButton={false} className="max-w-md">
+
         {step === "connect" && (
           <>
             <DialogHeader>
@@ -215,109 +144,6 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
                 Download and open Scout Bridge to connect this computer.
                 Make sure <a href="https://docs.anthropic.com/en/docs/claude-code/overview" target="_blank" rel="noopener" className="underline underline-offset-2">Claude Code</a> is installed first.
               </DialogDescription>
-            </DialogHeader>
-            <DialogPanel>
-              <div className="space-y-4">
-                {apiKey ? (
-                  <>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <Button type="button" variant="outline" onClick={handleDownloadBridge}>
-                        <DownloadIcon className="size-3.5 mr-1.5" />
-                        Download Bridge
-                      </Button>
-                      <Button
-                        type="button"
-                        onClick={handlePairBridge}
-                        loading={pairing}
-                      >
-                        Connect Bridge
-                      </Button>
-                    </div>
-                    {pairError && (
-                      <p className="text-xs text-destructive">
-                        {pairError} Open Scout Bridge, then try Connect Bridge again.
-                      </p>
-                    )}
-                    <div className="relative">
-                      <div className="rounded-lg border bg-muted/50 p-3 pr-10 font-mono text-xs break-all select-all leading-relaxed">
-                        {npxCommand}
-                      </div>
-                      <button
-                        onClick={handleCopy}
-                        className="absolute right-2 top-2 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                        title="Copy command"
-                      >
-                        {copied ? (
-                          <CheckIcon className="size-3.5 text-green-500" />
-                        ) : (
-                          <CopyIcon className="size-3.5" />
-                        )}
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-2">
-                      <LoaderIcon className="size-3.5 animate-spin" />
-                      <span>Waiting for connection...</span>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-4 text-sm text-muted-foreground">
-                    Generating API key...
-                  </div>
-                )}
-              </div>
-            </DialogPanel>
-            <DialogFooter variant="bare">
-              <Button variant="ghost" onClick={handleSkip}>
-                Skip for now
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-
-        {step === "connected" && (
-          <>
-            <DialogHeader>
-              <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-green-500/10 text-green-500 mb-2">
-                <CheckIcon className="size-6" />
-              </div>
-              <DialogTitle className="text-center">Machine Connected</DialogTitle>
-              <DialogDescription className="text-center">
-                Your computer is now connected to Scout.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogPanel>
-              <div className="space-y-4">
-                <Field>
-                  <FieldLabel>Machine Name</FieldLabel>
-                  <Input
-                    type="text"
-                    value={machineName}
-                    onChange={(e) => setMachineName((e.target as HTMLInputElement).value)}
-                    placeholder="e.g. My MacBook, Work PC..."
-                  />
-                </Field>
-              </div>
-            </DialogPanel>
-            <DialogFooter variant="bare">
-              <Button onClick={() => setStep("create-agent")}>
-                Continue
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-
-        {step === "create-agent" && (
-          <>
-            <DialogHeader>
-              <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary mb-2">
-                <TerminalIcon className="size-6" />
-              </div>
-              <DialogTitle className="text-center">Create Your First Agent</DialogTitle>
-              <DialogDescription className="text-center">
-                Agents are AI assistants that live in your workspace. Create one to get started.
-              </DialogDescription>
-            </DialogHeader>
-            <form className="contents" onSubmit={handleCreateAgent}>
               <DialogPanel>
                 <div className="space-y-4">
                   <Field>

@@ -303,21 +303,24 @@ export function MessageArea({
       };
       setMessages((prev) => [...prev, optimisticMsg]);
 
-      const { data: inserted } = await supabase
-        .from('messages')
-        .insert({
-          channel_id: channel.id,
-          sender_id: userId,
-          sender_type: 'human',
-          content,
-        })
-        .select()
-        .single();
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_id: channel.id, content }),
+      });
+      const payload = await response.json();
+      const inserted = response.ok ? payload.message : null;
 
       if (inserted) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === optimisticMsg.id ? ({ ...inserted, profiles: null } as Message) : m)),
-        );
+        setMessages((prev) => {
+          const withoutOptimistic = prev.filter((message) => message.id !== optimisticMsg.id);
+          if (withoutOptimistic.some((message) => message.id === inserted.id)) {
+            return withoutOptimistic;
+          }
+          return [...withoutOptimistic, { ...inserted, profiles: null } as Message];
+        });
+      } else {
+        setMessages((prev) => prev.filter((message) => message.id !== optimisticMsg.id));
       }
 
       setSending(false);

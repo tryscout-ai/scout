@@ -7,6 +7,10 @@ dist/
 .env.*.local
 *.tsbuildinfo
 
+# Installer build artifacts
+installer/mac/.cache/
+installer/mac/build/
+
 # Supabase CLI local state — should never be committed
 supabase/.temp/
 supabase/.branches/

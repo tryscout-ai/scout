@@ -530,7 +530,7 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
       const req = createRequire(import.meta.url);
       const cliPath = req.resolve("@scout/scout-cli/dist/index.js");
       // Published mode: use node to run compiled JS directly
-      wrapperBody = `#!/usr/bin/env bash\nexec node '${cliPath.replace(/'/g, "'\\''")}' "$@"\n`;
+      wrapperBody = `#!/usr/bin/env bash\nexec '${process.execPath.replace(/'/g, "'\\''")}' '${cliPath.replace(/'/g, "'\\''")}' "$@"\n`;
       console.log(`  [${session.displayName}] CLI resolved from npm package: ${cliPath}`);
     } catch {
       // Fall back to monorepo dev path (TypeScript source via tsx)
@@ -571,7 +571,7 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
           SCOUT_SUPABASE_URL: this.supabaseUrl,
           SCOUT_SUPABASE_KEY: this.supabaseKey,
           SCOUT_AUTH_TOKEN: this.authToken,
-          PATH: `${scoutDir}:${process.env.PATH ?? ""}`,
+          PATH: getLoginShellPath([scoutDir]),
         },
         stdio: ["ignore", "ignore", "pipe"],
       });
@@ -648,9 +648,9 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
         SCOUT_AGENT_ID: agentId,
         SCOUT_SUPABASE_URL: this.supabaseUrl,
         SCOUT_SUPABASE_KEY: this.supabaseKey,
-        SCOUT_AUTH_TOKEN: this.authToken,
-        // Prepend .scout/ to PATH so `scout` command is available
-        PATH: `${scoutDir}:${process.env.PATH ?? ""}`,
+      SCOUT_AUTH_TOKEN: this.authToken,
+      // Prepend .scout/ to PATH so `scout` command is available
+        PATH: getLoginShellPath([scoutDir]),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });

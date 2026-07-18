@@ -22,7 +22,14 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { CheckIcon, CopyIcon, LoaderIcon, MonitorIcon, TerminalIcon } from "lucide-react";
+import {
+  CheckIcon,
+  CopyIcon,
+  DownloadIcon,
+  LoaderIcon,
+  MonitorIcon,
+  TerminalIcon,
+} from "lucide-react";
 
 interface SetupWizardProps {
   serverId: string;
@@ -42,6 +49,8 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
   const [step, setStep] = useState<Step>("connect");
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pairing, setPairing] = useState(false);
+  const [pairError, setPairError] = useState("");
   const [machineName, setMachineName] = useState("");
   const [serverUrl] = useState(() =>
     typeof window === "undefined" ? "" : window.location.origin
@@ -114,6 +123,41 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
     setTimeout(() => setCopied(false), 2000);
   }
 
+  function handleDownloadBridge() {
+    window.open("/api/download/bridge", "_blank");
+  }
+
+  async function handlePairBridge() {
+    if (!apiKey) return;
+
+    setPairing(true);
+    setPairError("");
+
+    try {
+      const res = await fetch("http://localhost:42137/pair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          serverUrl,
+          apiKey,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Scout Bridge is not running yet.");
+      }
+    } catch (err) {
+      setPairError(
+        err instanceof Error
+          ? err.message
+          : "Scout Bridge is not running yet."
+      );
+    } finally {
+      setPairing(false);
+    }
+  }
+
   async function handleCreateAgent(e: React.FormEvent) {
     e.preventDefault();
     if (!agentName.trim()) return;
@@ -168,7 +212,7 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
               </div>
               <DialogTitle className="text-center">Connect Your Machine</DialogTitle>
               <DialogDescription className="text-center">
-                Run this command on your computer to connect it to Scout.
+                Download and open Scout Bridge to connect this computer.
                 Make sure <a href="https://docs.anthropic.com/en/docs/claude-code/overview" target="_blank" rel="noopener" className="underline underline-offset-2">Claude Code</a> is installed first.
               </DialogDescription>
             </DialogHeader>
@@ -176,6 +220,24 @@ export function SetupWizard({ serverId, serverSlug, onComplete }: SetupWizardPro
               <div className="space-y-4">
                 {apiKey ? (
                   <>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Button type="button" variant="outline" onClick={handleDownloadBridge}>
+                        <DownloadIcon className="size-3.5 mr-1.5" />
+                        Download Bridge
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={handlePairBridge}
+                        loading={pairing}
+                      >
+                        Connect Bridge
+                      </Button>
+                    </div>
+                    {pairError && (
+                      <p className="text-xs text-destructive">
+                        {pairError} Open Scout Bridge, then try Connect Bridge again.
+                      </p>
+                    )}
                     <div className="relative">
                       <div className="rounded-lg border bg-muted/50 p-3 pr-10 font-mono text-xs break-all select-all leading-relaxed">
                         {npxCommand}

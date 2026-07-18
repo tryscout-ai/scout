@@ -208,20 +208,94 @@ await registerStartup();
         `  Token refresh failed: ${err instanceof Error ? err.message : err}`
       );
     }
-  }, 6 * 60 * 60 * 1000);
+
+    if (bridge) {
+      bridge.stop();
+      bridge = null;
+    }
+  };
+
+  const startBridge = async (nextConfig: BridgeConfig) => {
+    stopBridge();
+
+    bridge = await runBridge(
+      nextConfig.serverUrl,
+      nextConfig.apiKey,
+      nextConfig.agentsDir
+    );
+
+    await registerStartup();
+
+    refreshInterval = setInterval(async () => {
+      try {
+        const fresh = await authenticate(nextConfig.serverUrl, nextConfig.apiKey);
+        bridge?.updateAuthToken(fresh.token);
+        console.log("  Auth token refreshed.");
+      } catch (err) {
+        console.error(
+          `  Token refresh failed: ${err instanceof Error ? err.message : err}`
+        );
+      }
+    }, 6 * 60 * 60 * 1000);
+  };
+
+  if (cli.apiKey) {
+    config = {
+      serverUrl: cli.serverUrl,
+      apiKey: cli.apiKey,
+      agentsDir: cli.agentsDir,
+    };
+
+    saveConfig(config);
+  }
+
+  let resolveInitialPairing: ((pairedConfig: BridgeConfig) => void) | null =
+    null;
+  const initialPairing = new Promise<BridgeConfig>((resolve) => {
+    resolveInitialPairing = resolve;
+  });
+
+  try {
+    await startPairingServer({
+      isPaired: () => Boolean(config),
+      onPair: async (pairedConfig) => {
+        config = pairedConfig;
+        resolveInitialPairing?.(pairedConfig);
+
+        if (bridge) {
+          await startBridge(pairedConfig);
+        }
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Unable to start local pairing server: ${message}`);
+    process.exit(1);
+  }
+
+  if (!config) {
+    console.log("Bridge not configured.");
+    console.log("Waiting for pairing from Scout web...");
+    config = await initialPairing;
+  }
+
+  await startBridge(config);
 
   process.on("SIGINT", () => {
     console.log("\n  Shutting down bridge...");
-    clearInterval(refreshInterval);
-    bridge.stop();
+    stopBridge();
     process.exit(0);
   });
 
   process.on("SIGTERM", () => {
-    clearInterval(refreshInterval);
-    bridge.stop();
+    stopBridge();
     process.exit(0);
   });
+  // Keep the packaged background app alive while the bridge and pairing server run.
+  setInterval(() => {}, 1 << 30);
 }
 
-main();
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+});

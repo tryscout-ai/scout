@@ -7,6 +7,7 @@ import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { normalizeLegacyBranding } from "./branding.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { spawnSync } from "child_process";
+import { LLMMessage, LLMProvider } from "./providers/llm-provider.js";
 
 type AgentActivity = "idle" | "thinking" | "working" | "error";
 
@@ -33,6 +34,7 @@ interface AgentSession {
   name: string;
   displayName: string;
   workDir: string;
+  conversation: LLMMessage[];
 }
 
 interface QueuedMessage {
@@ -79,19 +81,27 @@ export class AgentManager {
   private supabaseKey: string;
   private authToken: string;
   private activityChannel: RealtimeChannel;
+  private readonly llmProvider: LLMProvider;
+  private readonly defaultRunner: "claude" | "codex";
 
   constructor(
     agentsDir: string,
     supabase: SupabaseClient,
     supabaseUrl: string,
     supabaseKey: string,
-    authToken: string = ""
+    authToken: string = "",
+    llmProvider: LLMProvider
   ) {
     this.agentsDir = agentsDir;
     this.supabase = supabase;
     this.supabaseUrl = supabaseUrl;
     this.supabaseKey = supabaseKey;
     this.authToken = authToken;
+    this.llmProvider = llmProvider;
+    this.defaultRunner =
+      AGENT_RUNNER === "claude"
+        ? "claude"
+        : "codex";
 
     if (!existsSync(agentsDir)) {
       mkdirSync(agentsDir, { recursive: true });
@@ -227,41 +237,41 @@ export class AgentManager {
   }
 
   private ensureCodexLoggedIn(env: NodeJS.ProcessEnv) {
-  const status = spawnSync("cmd.exe", [
-    "/d",
-    "/s",
-    "/c",
-    "codex",
-    "login",
-    "status",
-  ], {
-    env,
-    encoding: "utf8",
-    windowsHide: true,
-  });
+    const status = spawnSync("cmd.exe", [
+      "/d",
+      "/s",
+      "/c",
+      "codex",
+      "login",
+      "status",
+    ], {
+      env,
+      encoding: "utf8",
+      windowsHide: true,
+    });
 
-  if (status.status === 0) {
-    return;
+    if (status.status === 0) {
+      return;
+    }
+
+    console.log("Codex not logged in. Launching login...");
+
+    const login = spawnSync("cmd.exe", [
+      "/d",
+      "/s",
+      "/c",
+      "codex",
+      "login",
+    ], {
+      env,
+      stdio: "inherit",
+      windowsHide: false,
+    });
+
+    if (login.status !== 0) {
+      throw new Error("Codex login failed.");
+    }
   }
-
-  console.log("Codex not logged in. Launching login...");
-
-  const login = spawnSync("cmd.exe", [
-    "/d",
-    "/s",
-    "/c",
-    "codex",
-    "login",
-  ], {
-    env,
-    stdio: "inherit",
-    windowsHide: false,
-  });
-
-  if (login.status !== 0) {
-    throw new Error("Codex login failed.");
-  }
-}
 
   /**
    * Flush accumulated assistant text as an activity broadcast.
@@ -329,6 +339,7 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
       name: agent.name,
       displayName: agent.display_name,
       workDir,
+      conversation: [],
     });
 
     // Update workspace_path in DB
@@ -401,29 +412,29 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
     session: AgentSession,
     userMessage: string
   ): Promise<string | void> | void {
+
     agentProc.busy = true;
 
     const displayName = session.displayName;
+
     console.log(
-      `  [${displayName}] Forwarding message (${userMessage.length} chars)...`
+      `[${displayName}] Forwarding message (${userMessage.length} chars)...`
     );
-    this.broadcastActivity(agentId, "working", "Working", "Message received");
 
-    if (agentProc.runner === "codex") {
-      console.log("ABOUT TO CALL runCodexTurn");
-      return this.runCodexTurn(agentId, agentProc, session, userMessage);
-    }
+    this.broadcastActivity(
+      agentId,
+      "working",
+      "Working",
+      "Message received"
+    );
 
-    const stdinMsg = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: [{ type: "text", text: userMessage }],
-      },
-      ...(agentProc.sessionId ? { session_id: agentProc.sessionId } : {}),
-    });
+    return this.runWithProvider(
+      agentId,
+      agentProc,
+      session,
+      userMessage
+    );
 
-    agentProc.proc.stdin?.write(stdinMsg + "\n");
   }
 
   /** Process the next queued message, if any */
@@ -546,7 +557,7 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
     return scoutDir;
   }
 
-  
+
   private async spawnProcess(
     agentId: string,
     session: AgentSession,
@@ -557,7 +568,7 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
     const scoutDir = this.prepareCliTransport(agentId, session);
 
     const prevProc = this.processes.get(agentId);
-    const runner: "claude" | "codex" = AGENT_RUNNER === "claude" ? "claude" : "codex";
+    const runner = this.defaultRunner;
 
     if (runner === "codex") {
       console.log(`  [${session.displayName}] Preparing Codex runner...`);
@@ -713,26 +724,26 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
   }
 
   private async runCodexTurn(
-  agentId: string,
-  agentProc: AgentProcess,
-  session: AgentSession,
-  userMessage: string
-): Promise<string> {
-  console.log("ENTERED runCodexTurn");
+    agentId: string,
+    agentProc: AgentProcess,
+    session: AgentSession,
+    userMessage: string
+  ): Promise<string> {
+    console.log("ENTERED runCodexTurn");
 
-  const memoryPath = join(session.workDir, "MEMORY.md");
-  const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
+    const memoryPath = join(session.workDir, "MEMORY.md");
+    const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
 
-  try {
-    const { data: agent } = await this.supabase
-      .from("agents")
-      .select("*")
-      .eq("id", agentId)
-      .single();
+    try {
+      const { data: agent } = await this.supabase
+        .from("agents")
+        .select("*")
+        .eq("id", agentId)
+        .single();
 
-    const systemPrompt = buildSystemPrompt(agent, memoryContext);
+      const systemPrompt = buildSystemPrompt(agent, memoryContext);
 
-    const prompt = `${systemPrompt}
+      const prompt = `${systemPrompt}
 
 ## Codex bridge response mode
 
@@ -741,235 +752,235 @@ Return the exact message that should appear in chat as your final answer.
 
 ${userMessage}`;
 
-    const args = [
-      "exec",
-      "--skip-git-repo-check",
-      "--json",
-      "--color",
-      "never",
-      "--dangerously-bypass-approvals-and-sandbox",
-      "-C",
-      session.workDir,
-    ];
+      const args = [
+        "exec",
+        "--skip-git-repo-check",
+        "--json",
+        "--color",
+        "never",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-C",
+        session.workDir,
+      ];
 
-    const runnerEnv = {
-      ...process.env,
-      FORCE_COLOR: "0",
-      NO_COLOR: "1",
-      SCOUT_AGENT_ID: agentId,
-      SCOUT_SUPABASE_URL: this.supabaseUrl,
-      SCOUT_SUPABASE_KEY: this.supabaseKey,
-      SCOUT_AUTH_TOKEN: this.authToken,
-      PATH: [
-        join(session.workDir, ".scout"),
-        process.env.PATH ?? "",
-      ].join(delimiter),
-    };
-
-    this.ensureCodexLoggedIn(runnerEnv);
-   const { command, argsPrefix } = resolveExecutable(CODEX_COMMAND);
-
-this.assertCodexAvailable(command, argsPrefix, runnerEnv);
-
-console.time("codex-turn");
-
-const isWindows = process.platform === "win32";
-
-const turnProc = isWindows
-  ? spawn(
-      "cmd.exe",
-      ["/d", "/s", "/c", command, ...argsPrefix, ...args],
-      {
-        cwd: session.workDir,
-        env: runnerEnv,
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-      }
-    )
-  : spawn(command, [...argsPrefix, ...args], {
-      cwd: session.workDir,
-      env: runnerEnv,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-console.log("Spawned Codex PID:", turnProc.pid);
-
-    turnProc.stdin?.on("error", (err: Error & { code?: string }) => {
-      if (err.code !== "EPIPE") {
-        console.error(
-          `  [${session.displayName}] stdin error: ${err.message}`
-        );
-      }
-    });
-
-    turnProc.stdin?.end(prompt);
-
-    let stdoutBuffer = "";
-    let stdoutRaw = "";
-    let stderrRaw = "";
-    let finalText = "";
-
-    return await new Promise<string>((resolve, reject) => {
-      let settled = false;
-
-      const timeout = setTimeout(() => {
-        finish(() => {
-          turnProc.kill();
-          agentProc.busy = false;
-          this.broadcastActivity(
-            agentId,
-            "error",
-            "Error",
-            "Codex turn timed out"
-          );
-          this.drainQueue(agentId, agentProc);
-          reject(new Error("Codex turn timed out"));
-        });
-      }, CODEX_TURN_TIMEOUT_MS);
-
-      const finish = (fn: () => void) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        fn();
+      const runnerEnv = {
+        ...process.env,
+        FORCE_COLOR: "0",
+        NO_COLOR: "1",
+        SCOUT_AGENT_ID: agentId,
+        SCOUT_SUPABASE_URL: this.supabaseUrl,
+        SCOUT_SUPABASE_KEY: this.supabaseKey,
+        SCOUT_AUTH_TOKEN: this.authToken,
+        PATH: [
+          join(session.workDir, ".scout"),
+          process.env.PATH ?? "",
+        ].join(delimiter),
       };
 
-      turnProc.stdout?.on("data", (chunk: Buffer) => {
-        stdoutRaw += chunk.toString();
-  const text = chunk.toString();
+      this.ensureCodexLoggedIn(runnerEnv);
+      const { command, argsPrefix } = resolveExecutable(CODEX_COMMAND);
 
-  stdoutRaw += text;
-  stdoutBuffer += text;
+      this.assertCodexAvailable(command, argsPrefix, runnerEnv);
 
-  const lines = stdoutBuffer.split("\n");
-  stdoutBuffer = lines.pop() || "";
+      console.time("codex-turn");
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) continue;
+      const isWindows = process.platform === "win32";
 
-    finalText = this.handleCodexStreamEvent(
-      agentId,
-      agentProc,
-      trimmed,
-      finalText
-    );
-  }
-});
-
-     let stderrRaw = "";
-
-turnProc.stderr?.on("data", (chunk: Buffer) => {
-  const text = chunk.toString();
-
-  stderrRaw += text;
-
-  process.stderr.write(chunk);
-});
-      turnProc.on("error", (err: Error) => {
-        finish(() => {
-          agentProc.busy = false;
-          this.broadcastActivity(agentId, "error", "Error", err.message);
-          console.error(
-            `  [${session.displayName}] Process error: ${err.message}`
-          );
-          this.drainQueue(agentId, agentProc);
-          reject(err);
+      const turnProc = isWindows
+        ? spawn(
+          "cmd.exe",
+          ["/d", "/s", "/c", command, ...argsPrefix, ...args],
+          {
+            cwd: session.workDir,
+            env: runnerEnv,
+            stdio: ["pipe", "pipe", "pipe"],
+            windowsHide: true,
+          }
+        )
+        : spawn(command, [...argsPrefix, ...args], {
+          cwd: session.workDir,
+          env: runnerEnv,
+          stdio: ["pipe", "pipe", "pipe"],
         });
+
+      console.log("Spawned Codex PID:", turnProc.pid);
+
+      turnProc.stdin?.on("error", (err: Error & { code?: string }) => {
+        if (err.code !== "EPIPE") {
+          console.error(
+            `  [${session.displayName}] stdin error: ${err.message}`
+          );
+        }
       });
 
-      turnProc.on("close", (code: number | null) => {
-        
-  console.log("Codex exited:", code);
-  console.log("stdout so far:\n", stdoutBuffer);
+      turnProc.stdin?.end(prompt);
 
-  finish(() => {
-    if (code !== 0) {
-      console.log("===== RAW STDOUT =====");
-console.log(stdoutRaw);
+      let stdoutBuffer = "";
+      let stdoutRaw = "";
+      let stderrRaw = "";
+      let finalText = "";
 
-console.log("===== RAW STDERR =====");
-console.log(stderrRaw);
+      return await new Promise<string>((resolve, reject) => {
+        let settled = false;
+
+        const timeout = setTimeout(() => {
+          finish(() => {
+            turnProc.kill();
+            agentProc.busy = false;
+            this.broadcastActivity(
+              agentId,
+              "error",
+              "Error",
+              "Codex turn timed out"
+            );
+            this.drainQueue(agentId, agentProc);
+            reject(new Error("Codex turn timed out"));
+          });
+        }, CODEX_TURN_TIMEOUT_MS);
+
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          fn();
+        };
+
+        turnProc.stdout?.on("data", (chunk: Buffer) => {
+          stdoutRaw += chunk.toString();
+          const text = chunk.toString();
+
+          stdoutRaw += text;
+          stdoutBuffer += text;
+
+          const lines = stdoutBuffer.split("\n");
+          stdoutBuffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("{")) continue;
+
+            finalText = this.handleCodexStreamEvent(
+              agentId,
+              agentProc,
+              trimmed,
+              finalText
+            );
+          }
+        });
+
+        let stderrRaw = "";
+
+        turnProc.stderr?.on("data", (chunk: Buffer) => {
+          const text = chunk.toString();
+
+          stderrRaw += text;
+
+          process.stderr.write(chunk);
+        });
+        turnProc.on("error", (err: Error) => {
+          finish(() => {
+            agentProc.busy = false;
+            this.broadcastActivity(agentId, "error", "Error", err.message);
+            console.error(
+              `  [${session.displayName}] Process error: ${err.message}`
+            );
+            this.drainQueue(agentId, agentProc);
+            reject(err);
+          });
+        });
+
+        turnProc.on("close", (code: number | null) => {
+
+          console.log("Codex exited:", code);
+          console.log("stdout so far:\n", stdoutBuffer);
+
+          finish(() => {
+            if (code !== 0) {
+              console.log("===== RAW STDOUT =====");
+              console.log(stdoutRaw);
+
+              console.log("===== RAW STDERR =====");
+              console.log(stderrRaw);
+              agentProc.busy = false;
+              this.broadcastActivity(
+                agentId,
+                "error",
+                "Error",
+                `Codex exited with code ${code}`
+              );
+              this.drainQueue(agentId, agentProc);
+              reject(new Error(`Codex exited with code ${code}`));
+              return;
+            }
+
+            agentProc.busy = false;
+            this.broadcastActivity(agentId, "idle", "Idle", "");
+            this.drainQueue(agentId, agentProc);
+            console.timeEnd("codex-turn");
+            resolve(finalText.trim());
+          });
+        });
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+
       agentProc.busy = false;
-      this.broadcastActivity(
-        agentId,
-        "error",
-        "Error",
-        `Codex exited with code ${code}`
+      this.broadcastActivity(agentId, "error", "Error", message);
+      console.error(
+        `  [${session.displayName}] Failed to start Codex turn: ${message}`
       );
       this.drainQueue(agentId, agentProc);
-      reject(new Error(`Codex exited with code ${code}`));
+
+      throw err instanceof Error ? err : new Error(message);
+    }
+  }
+
+  private assertCodexAvailable(
+    command: string,
+    argsPrefix: string[],
+    env: NodeJS.ProcessEnv
+  ) {
+    console.log("\n========== CODEX CHECK ==========");
+    console.log("Platform :", process.platform);
+    console.log("Node     :", process.version);
+    console.log("Command  :", command);
+    console.log("Args     :", argsPrefix);
+    console.log("PATH     :", env.PATH);
+    console.log("=================================\n");
+
+    const result =
+      process.platform === "win32"
+        ? spawnSync("cmd.exe", ["/d", "/s", "/c", command, "--version"], {
+          encoding: "utf8",
+          env,
+          windowsHide: true,
+        })
+        : spawnSync(command, [...argsPrefix, "--version"], {
+          encoding: "utf8",
+          env,
+        });
+
+    console.log("\n========== RESULT ==========");
+    console.log("status :", result.status);
+    console.log("signal :", result.signal);
+    console.log("stdout :", result.stdout);
+    console.log("stderr :", result.stderr);
+    console.log("error  :", result.error);
+    console.log("============================\n");
+
+    if (result.status === 0) {
       return;
     }
 
-    agentProc.busy = false;
-    this.broadcastActivity(agentId, "idle", "Idle", "");
-    this.drainQueue(agentId, agentProc);
-    console.timeEnd("codex-turn");
-    resolve(finalText.trim());
-  });
-});
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const detail =
+      result.error?.stack ||
+      result.error?.message ||
+      result.stderr?.trim() ||
+      result.stdout?.trim() ||
+      "unknown error";
 
-    agentProc.busy = false;
-    this.broadcastActivity(agentId, "error", "Error", message);
-    console.error(
-      `  [${session.displayName}] Failed to start Codex turn: ${message}`
-    );
-    this.drainQueue(agentId, agentProc);
-
-    throw err instanceof Error ? err : new Error(message);
+    throw new Error(`Codex CLI is unavailable.\n${detail}`);
   }
-}
-
-private assertCodexAvailable(
-  command: string,
-  argsPrefix: string[],
-  env: NodeJS.ProcessEnv
-) {
-  console.log("\n========== CODEX CHECK ==========");
-  console.log("Platform :", process.platform);
-  console.log("Node     :", process.version);
-  console.log("Command  :", command);
-  console.log("Args     :", argsPrefix);
-  console.log("PATH     :", env.PATH);
-  console.log("=================================\n");
-
-  const result =
-  process.platform === "win32"
-    ? spawnSync("cmd.exe", ["/d", "/s", "/c", command, "--version"], {
-        encoding: "utf8",
-        env,
-        windowsHide: true,
-      })
-    : spawnSync(command, [...argsPrefix, "--version"], {
-        encoding: "utf8",
-        env,
-      });
-
-  console.log("\n========== RESULT ==========");
-  console.log("status :", result.status);
-  console.log("signal :", result.signal);
-  console.log("stdout :", result.stdout);
-  console.log("stderr :", result.stderr);
-  console.log("error  :", result.error);
-  console.log("============================\n");
-
-  if (result.status === 0) {
-    return;
-  }
-
-  const detail =
-    result.error?.stack ||
-    result.error?.message ||
-    result.stderr?.trim() ||
-    result.stdout?.trim() ||
-    "unknown error";
-
-  throw new Error(`Codex CLI is unavailable.\n${detail}`);
-}
 
   private handleCodexStreamEvent(
     agentId: string,
@@ -993,10 +1004,10 @@ private assertCodexAvailable(
         break;
       case "item.completed":
         console.log(
-  "AGENT MESSAGE RECEIVED",
-  Date.now(),
-  event.item?.text?.length
-);
+          "AGENT MESSAGE RECEIVED",
+          Date.now(),
+          event.item?.text?.length
+        );
         if (event.item?.type === "agent_message" && event.item?.text) {
           finalText = event.item.text;
           this.broadcastActivity(agentId, "working", "", event.item.text);
@@ -1091,6 +1102,125 @@ private assertCodexAvailable(
         break;
       }
     }
+  }
+
+  private async runWithProvider(
+    agentId: string,
+    agentProc: AgentProcess,
+    session: AgentSession,
+    userMessage: string
+  ): Promise<string> {
+
+    const memoryPath = join(
+      session.workDir,
+      "MEMORY.md"
+    );
+
+    const memoryContext =
+      this.migrateLegacyBrandingInMemory(
+        memoryPath
+      );
+
+    const { data: agent } =
+      await this.supabase
+        .from("agents")
+        .select("*")
+        .eq("id", agentId)
+        .single();
+
+    const systemPrompt =
+      buildSystemPrompt(
+        agent,
+        memoryContext
+      );
+
+    try {
+
+      const result =
+        await this.llmProvider.generate({
+
+          agentId,
+
+          model:
+            agent?.model ?? "gpt-oss-20b",
+
+          systemPrompt,
+
+          userPrompt: userMessage,
+
+          workingDirectory:
+            session.workDir,
+
+          messages:
+            session.conversation,
+
+        });
+        if (result.activity) {
+
+    for (const update of result.activity) {
+
+        this.broadcastActivity(
+            agentId,
+            update.activity,
+            update.label,
+            update.detail
+        );
+
+    }
+
+}
+      session.conversation.push({
+
+        role: "user",
+
+        content: userMessage,
+
+      });
+
+      session.conversation.push({
+
+        role: "assistant",
+
+        content: result.content,
+
+      });
+
+      agentProc.busy = false;
+
+      this.broadcastActivity(
+        agentId,
+        "idle",
+        "Idle",
+        "Completed"
+      );
+
+      this.drainQueue(
+        agentId,
+        agentProc
+      );
+
+      return result.content;
+
+    } catch (err) {
+
+      agentProc.busy = false;
+
+      this.broadcastActivity(
+        agentId,
+        "error",
+        "Error",
+        "Generation failed"
+      );
+
+      this.drainQueue(
+        agentId,
+        agentProc
+      );
+
+      throw err;
+
+    }
+
   }
 
   /** Get the workspace directory for an agent */

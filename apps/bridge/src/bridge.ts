@@ -45,6 +45,7 @@ interface DbChannelMember {
 }
 
 type SalesWorkflowStage = "enricher" | "leadscorer" | "outreach" | "reviewer";
+type SalesHandoffStage = "leadfinder" | SalesWorkflowStage;
 
 interface ActiveSalesWorkflow {
   channelId: string;
@@ -58,6 +59,11 @@ const SALES_WORKFLOW_STAGES: SalesWorkflowStage[] = [
   "leadscorer",
   "outreach",
   "reviewer",
+];
+
+const SALES_HANDOFF_STAGES: SalesHandoffStage[] = [
+  "leadfinder",
+  ...SALES_WORKFLOW_STAGES,
 ];
 
 export class Bridge {
@@ -386,18 +392,38 @@ this.agentManager = new AgentManager(
     return null;
   }
 
-  private isReviewerHandoff(
+  private hasActiveSalesWorkflowInChannel(channelId: string) {
+    return Array.from(this.activeSalesWorkflows.values()).some(
+      (workflow) => workflow.channelId === channelId
+    );
+  }
+
+  private getSalesHandoffStage(
+    agentId: string,
+    channelAgentIds: Set<string>
+  ): SalesHandoffStage | null {
+    for (const stage of SALES_HANDOFF_STAGES) {
+      const agent = this.findAgentByName(stage, channelAgentIds);
+      if (agent?.id === agentId) return stage;
+    }
+    return null;
+  }
+
+  private getForwardHandoffTargets(
     msg: DbMessage,
     mentionedAgentIds: Set<string>,
     channelAgentIds: Set<string>
-  ) {
-    const reviewer = this.findAgentByName("reviewer", channelAgentIds);
-    if (!reviewer || !mentionedAgentIds.has(reviewer.id)) return false;
-    if (msg.sender_id === reviewer.id) return false;
+  ): Set<string> {
+    const senderStage = this.getSalesHandoffStage(msg.sender_id, channelAgentIds);
+    if (!senderStage) return new Set();
 
-    const handoffLanguage =
-      /\b(review|reviewer|quality|qa|final|sign-?off|check|approve|approval|handoff|handing\s+off)\b/i;
-    return handoffLanguage.test(msg.content);
+    const nextStage = SALES_HANDOFF_STAGES[SALES_HANDOFF_STAGES.indexOf(senderStage) + 1];
+    if (!nextStage) return new Set();
+
+    const nextAgent = this.findAgentByName(nextStage, channelAgentIds);
+    if (!nextAgent || !mentionedAgentIds.has(nextAgent.id)) return new Set();
+
+    return new Set([nextAgent.id]);
   }
 
   private buildSalesStagePrompt(
@@ -630,16 +656,26 @@ console.timeEnd("supabase-insert");
       }
 
       if (msg.sender_type === "agent") {
-        if (!this.isReviewerHandoff(msg, mentioned, agentIdsInChannel)) {
+        if (this.hasActiveSalesWorkflowInChannel(msg.channel_id)) {
+          console.log(
+            `  [Bridge] Agent-authored mention ignored while controlled sales workflow is active.`
+          );
+          return;
+        }
+
+        respondingAgentIds = this.getForwardHandoffTargets(
+          msg,
+          mentioned,
+          agentIdsInChannel
+        );
+        if (respondingAgentIds.size === 0) {
           console.log(
             `  [Bridge] Agent-authored group mention ignored to prevent workflow loops.`
           );
           return;
         }
 
-        const reviewer = this.findAgentByName("reviewer", agentIdsInChannel);
-        respondingAgentIds = reviewer ? new Set([reviewer.id]) : new Set();
-        console.log(`  [Bridge] Routing terminal handoff to @reviewer.`);
+        console.log(`  [Bridge] Routing bounded forward sales handoff.`);
       } else {
         respondingAgentIds = mentioned;
       }

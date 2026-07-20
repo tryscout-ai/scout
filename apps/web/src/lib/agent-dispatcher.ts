@@ -25,6 +25,7 @@ type LlmProvider = {
   model: string;
 };
 
+const salesHandoffStages = ["leadfinder", "enricher", "leadscorer", "outreach", "reviewer"] as const;
 const mentionBoundary = "[\\s,.:!?，。！？、】【；]|$";
 const maxOutputTokens = Number(process.env.SCOUT_MAX_OUTPUT_TOKENS || 2_048);
 const contextMessageLimit = Number(process.env.SCOUT_CONTEXT_MESSAGE_LIMIT || 6);
@@ -76,6 +77,32 @@ function isMentioned(content: string, agent: Agent) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(`@${escaped}(?=${mentionBoundary})`, "i").test(content);
   });
+}
+
+function findAgentByName(agents: Agent[], name: string) {
+  const normalized = name.toLowerCase();
+  return agents.find((agent) =>
+    [agent.name, agent.display_name, agent.display_name.replace(/\s+/g, "")]
+      .map((candidate) => candidate.toLowerCase())
+      .includes(normalized)
+  );
+}
+
+function getSalesHandoffStage(agentId: string, agents: Agent[]) {
+  return salesHandoffStages.find((stage) => findAgentByName(agents, stage)?.id === agentId);
+}
+
+function getForwardHandoffTargets(message: Message, mentionedAgents: Agent[], agents: Agent[]) {
+  const senderStage = getSalesHandoffStage(message.sender_id, agents);
+  if (!senderStage) return [];
+
+  const nextStage = salesHandoffStages[salesHandoffStages.indexOf(senderStage) + 1];
+  if (!nextStage) return [];
+
+  const nextAgent = findAgentByName(agents, nextStage);
+  if (!nextAgent || !mentionedAgents.some((agent) => agent.id === nextAgent.id)) return [];
+
+  return [nextAgent];
 }
 
 function modelFor(agent: Agent) {
@@ -263,7 +290,7 @@ async function generateReply(agent: Agent, prompt: string, history: string) {
  * instance can process a request, so no browser or local bridge is required.
  */
 export async function dispatchMessage(message: Message): Promise<void> {
-  if (message.sender_type !== "human") return;
+  if (message.sender_type === "system") return;
 
   const supabase = createAdminClient();
   const [{ data: channel }, { data: memberships }] = await Promise.all([
@@ -283,9 +310,18 @@ export async function dispatchMessage(message: Message): Promise<void> {
     .in("id", agentIds);
   if (!agents?.length) return;
 
-  let targets = channel.type === "dm" && message.sender_type === "human"
-    ? agents as Agent[]
-    : (agents as Agent[]).filter((agent) => isMentioned(message.content, agent));
+  const channelAgents = agents as Agent[];
+  const mentionedAgents = channelAgents.filter((agent) => isMentioned(message.content, agent));
+  let targets: Agent[];
+
+  if (channel.type === "dm" && message.sender_type === "human") {
+    targets = channelAgents;
+  } else if (message.sender_type === "agent") {
+    targets = getForwardHandoffTargets(message, mentionedAgents, channelAgents);
+  } else {
+    targets = mentionedAgents;
+  }
+
   if (message.sender_type === "agent") targets = targets.filter((agent) => agent.id !== message.sender_id);
   if (!targets.length) return;
 
@@ -303,7 +339,10 @@ export async function dispatchMessage(message: Message): Promise<void> {
   const history = (recentMessages || []).reverse().map((entry) =>
     `[${entry.sender_type === "human" ? "User" : "Agent"}]: ${entry.content.slice(0, Number.isFinite(contextMessageChars) && contextMessageChars > 0 ? contextMessageChars : 400)}`
   ).join("\n");
-  const senderName = sender?.display_name || (message.sender_type === "agent" ? "Agent" : "User");
+  const senderAgent = message.sender_type === "agent"
+    ? channelAgents.find((agent) => agent.id === message.sender_id)
+    : null;
+  const senderName = sender?.display_name || senderAgent?.display_name || (message.sender_type === "agent" ? "Agent" : "User");
 
   await Promise.all(targets.map(async (agent) => {
     await supabase.from("agents").update({ status: "online" }).eq("id", agent.id);
@@ -313,13 +352,15 @@ export async function dispatchMessage(message: Message): Promise<void> {
       history,
     );
     if (!reply) return;
-    const { error } = await supabase.from("messages").insert({
+    const { data: inserted, error } = await supabase.from("messages").insert({
       channel_id: message.channel_id,
       sender_id: agent.id,
       sender_type: "agent",
       content: reply,
       ...(message.thread_parent_id ? { thread_parent_id: message.thread_parent_id } : {}),
-    });
+    }).select().single();
     if (error) throw new Error(error.message);
+
+    await dispatchMessage(inserted as Message);
   }));
 }

@@ -263,7 +263,7 @@ async function generateReply(agent: Agent, prompt: string, history: string) {
  * instance can process a request, so no browser or local bridge is required.
  */
 export async function dispatchMessage(message: Message): Promise<void> {
-  if (message.sender_type === "system") return;
+  if (message.sender_type !== "human") return;
 
   const supabase = createAdminClient();
   const [{ data: channel }, { data: memberships }] = await Promise.all([
@@ -313,14 +313,13 @@ export async function dispatchMessage(message: Message): Promise<void> {
       history,
     );
     if (!reply) return;
-    const { data: inserted, error } = await supabase.from("messages").insert({
+    const { error } = await supabase.from("messages").insert({
       channel_id: message.channel_id,
       sender_id: agent.id,
       sender_type: "agent",
       content: reply,
       ...(message.thread_parent_id ? { thread_parent_id: message.thread_parent_id } : {}),
-    }).select("id, channel_id, sender_id, sender_type, content, thread_parent_id").single();
+    });
     if (error) throw new Error(error.message);
-    await dispatchMessage(inserted as Message);
   }));
 }

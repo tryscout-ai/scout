@@ -2,7 +2,7 @@ import { createClient, SupabaseClient, RealtimeChannel } from "@supabase/supabas
 import { readdir, readFile, stat, lstat } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import { AgentManager } from "./agent-manager.js";
+import { AgentManager, AgentPausedError } from "./agent-manager.js";
 import { CodexProvider } from "./providers/codex-provider.js";
 import { OpenAIProvider } from "./providers/openai-provider.js";
 
@@ -44,6 +44,22 @@ interface DbChannelMember {
   member_type: string;
 }
 
+type SalesWorkflowStage = "enricher" | "leadscorer" | "outreach" | "reviewer";
+
+interface ActiveSalesWorkflow {
+  channelId: string;
+  rootMessageId: string;
+  activeAgentId: string | null;
+  stopped: boolean;
+}
+
+const SALES_WORKFLOW_STAGES: SalesWorkflowStage[] = [
+  "enricher",
+  "leadscorer",
+  "outreach",
+  "reviewer",
+];
+
 export class Bridge {
   private supabase: SupabaseClient;
   private agentManager: AgentManager;
@@ -56,6 +72,8 @@ export class Bridge {
   private channelNames = new Map<string, string>();
   // Maps agent_id -> agent DB record
   private agentRecords = new Map<string, DbAgent>();
+  // In-memory guard for one-pass sales workflows. Keyed by root human message id.
+  private activeSalesWorkflows = new Map<string, ActiveSalesWorkflow>();
   // Realtime channel for workspace file RPC (web UI ↔ bridge)
   private workspaceRpcChannel: RealtimeChannel | null = null;
   // Presence channel for online status (auto-offline on disconnect)
@@ -342,6 +360,199 @@ this.agentManager = new AgentManager(
     return channelId;
   }
 
+  private buildWorkflowKey(msg: DbMessage) {
+    return `${msg.channel_id}:${msg.id}`;
+  }
+
+  private findAgentByName(
+    name: string,
+    channelAgentIds: Set<string>
+  ): DbAgent | null {
+    const normalizedName = name.toLowerCase();
+    for (const agentId of channelAgentIds) {
+      const agent = this.agentRecords.get(agentId);
+      if (!agent) continue;
+
+      const candidates = [
+        agent.name,
+        agent.display_name,
+        agent.display_name.replace(/\s+/g, ""),
+      ].map((candidate) => candidate.toLowerCase());
+
+      if (candidates.includes(normalizedName)) {
+        return agent;
+      }
+    }
+    return null;
+  }
+
+  private isReviewerHandoff(
+    msg: DbMessage,
+    mentionedAgentIds: Set<string>,
+    channelAgentIds: Set<string>
+  ) {
+    const reviewer = this.findAgentByName("reviewer", channelAgentIds);
+    if (!reviewer || !mentionedAgentIds.has(reviewer.id)) return false;
+    if (msg.sender_id === reviewer.id) return false;
+
+    const handoffLanguage =
+      /\b(review|reviewer|quality|qa|final|sign-?off|check|approve|approval|handoff|handing\s+off)\b/i;
+    return handoffLanguage.test(msg.content);
+  }
+
+  private buildSalesStagePrompt(
+    stage: SalesWorkflowStage,
+    rootMessage: DbMessage,
+    channelTarget: string,
+    previousOutputs: Partial<Record<SalesWorkflowStage, string>>
+  ) {
+    const originalRequest = rootMessage.content;
+    const commonRules = [
+      "You are running inside a bridge-controlled one-pass sales workflow.",
+      "Do not mention or hand off to another Scout agent.",
+      "Do not call scout message send. Return only your stage output; the bridge will post it.",
+      "Do not restart the workflow or ask any upstream agent to rerun.",
+      "Use only verified facts from the user prompt or evidence already present in prior stage outputs.",
+      "If a fact is not supported, label it unknown or unverified instead of guessing.",
+      "Do not invent Kubernetes, K8s, cloud-native, e-commerce, contact, LinkedIn, email, buying-signal, or persona claims.",
+    ].join("\n- ");
+
+    const previousText = SALES_WORKFLOW_STAGES
+      .filter((stageName) => previousOutputs[stageName])
+      .map((stageName) => `## ${stageName}\n${previousOutputs[stageName]}`)
+      .join("\n\n");
+
+    const stageInstructions: Record<SalesWorkflowStage, string> = {
+      enricher:
+        "Stage: Enrichment. Produce a concise lead enrichment with sections: Verified, Unverified, Unknown, Hypotheses. If the prompt is all you have, say so plainly and keep unsupported fields unknown.",
+      leadscorer:
+        "Stage: Lead scoring. Score and prioritize only from the enrichment output. Penalize missing or unverified company fit, role, contact, or buying-signal evidence. Do not improve or invent enrichment.",
+      outreach:
+        "Stage: Outreach drafting. Draft outreach only using verified facts and safe generic language. If personalization evidence is thin, write a cautious note that does not assert unsupported company details.",
+      reviewer:
+        "Stage: Final review. Produce the final approved package and a short review note. Remove unsupported claims. Do not mention any agents. This is the terminal workflow stage.",
+    };
+
+    return [
+      `[target=${channelTarget} sender=@User type=workflow]`,
+      `Original user request: ${originalRequest}`,
+      "",
+      `Rules:\n- ${commonRules}`,
+      "",
+      previousText ? `Previous stage outputs:\n\n${previousText}` : "",
+      "",
+      stageInstructions[stage],
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  private async insertSystemMessage(channelId: string, content: string) {
+    const { error } = await this.supabase.from("messages").insert({
+      channel_id: channelId,
+      sender_id: this.config.userId,
+      sender_type: "system",
+      content,
+    });
+
+    if (error) {
+      console.error("  Failed to insert system message:", error.message);
+    }
+  }
+
+  private async runSalesWorkflow(
+    rootMessage: DbMessage,
+    channelAgentIds: Set<string>
+  ) {
+    const workflowKey = this.buildWorkflowKey(rootMessage);
+    if (this.activeSalesWorkflows.has(workflowKey)) {
+      console.log(`  [Bridge] Sales workflow already active for ${workflowKey}, skipping.`);
+      return;
+    }
+
+    const workflow: ActiveSalesWorkflow = {
+      channelId: rootMessage.channel_id,
+      rootMessageId: rootMessage.id,
+      activeAgentId: null,
+      stopped: false,
+    };
+    this.activeSalesWorkflows.set(workflowKey, workflow);
+
+    const agentsByStage = new Map<SalesWorkflowStage, DbAgent>();
+    for (const stage of SALES_WORKFLOW_STAGES) {
+      const agent = this.findAgentByName(stage, channelAgentIds);
+      if (!agent) {
+        await this.insertSystemMessage(
+          rootMessage.channel_id,
+          `Sales workflow stopped: missing @${stage} agent in this channel.`
+        );
+        this.activeSalesWorkflows.delete(workflowKey);
+        return;
+      }
+      agentsByStage.set(stage, agent);
+    }
+
+    const channelTarget = this.buildChannelTarget(rootMessage.channel_id, "User");
+    const previousOutputs: Partial<Record<SalesWorkflowStage, string>> = {};
+
+    try {
+      for (const stage of SALES_WORKFLOW_STAGES) {
+        const agent = agentsByStage.get(stage);
+        if (!agent) continue;
+
+        workflow.activeAgentId = agent.id;
+
+        const prompt = this.buildSalesStagePrompt(
+          stage,
+          rootMessage,
+          channelTarget,
+          previousOutputs
+        );
+        const stopVersion = this.agentManager.getStopVersion(agent.id);
+        const reply = await this.agentManager.sendToAgent(agent.id, prompt);
+
+        if (workflow.stopped || this.agentManager.getStopVersion(agent.id) !== stopVersion) {
+          console.log(`  [${agent.display_name}] Sales workflow stage suppressed after pause.`);
+          return;
+        }
+
+        if (typeof reply !== "string" || !reply.trim()) {
+          await this.insertSystemMessage(
+            rootMessage.channel_id,
+            `Sales workflow stopped: @${stage} returned no output.`
+          );
+          return;
+        }
+
+        previousOutputs[stage] = reply.trim();
+        await this.sendAgentReply(agent.id, rootMessage, reply);
+      }
+    } catch (err) {
+      if (err instanceof AgentPausedError) {
+        console.log("  [Bridge] Sales workflow paused by user.");
+        return;
+      }
+      console.error(
+        "  [Bridge] Sales workflow failed:",
+        err instanceof Error ? err.message : err
+      );
+      await this.insertSystemMessage(
+        rootMessage.channel_id,
+        `Sales workflow stopped: ${err instanceof Error ? err.message : "unknown error"}`
+      );
+    } finally {
+      this.activeSalesWorkflows.delete(workflowKey);
+    }
+  }
+
+  private markSalesWorkflowsStoppedForAgent(agentId: string) {
+    for (const workflow of this.activeSalesWorkflows.values()) {
+      if (workflow.activeAgentId === agentId) {
+        workflow.stopped = true;
+      }
+    }
+  }
+
   private async sendAgentReply(
     agentId: string,
     msg: DbMessage,
@@ -417,7 +628,29 @@ console.timeEnd("supabase-insert");
         );
         return;
       }
-      respondingAgentIds = mentioned;
+
+      if (msg.sender_type === "agent") {
+        if (!this.isReviewerHandoff(msg, mentioned, agentIdsInChannel)) {
+          console.log(
+            `  [Bridge] Agent-authored group mention ignored to prevent workflow loops.`
+          );
+          return;
+        }
+
+        const reviewer = this.findAgentByName("reviewer", agentIdsInChannel);
+        respondingAgentIds = reviewer ? new Set([reviewer.id]) : new Set();
+        console.log(`  [Bridge] Routing terminal handoff to @reviewer.`);
+      } else {
+        respondingAgentIds = mentioned;
+      }
+    }
+
+    if (!isDm && msg.sender_type === "human") {
+      const enricher = this.findAgentByName("enricher", agentIdsInChannel);
+      if (enricher && respondingAgentIds.has(enricher.id)) {
+        await this.runSalesWorkflow(msg, agentIdsInChannel);
+        return;
+      }
     }
 
     // Never feed an agent its own message back as a new assignment.
@@ -465,12 +698,18 @@ console.timeEnd("supabase-insert");
         // Fire-and-forget: agent handles all responses via `scout` CLI
         console.time("full-agent");
 
+const stopVersion = this.agentManager.getStopVersion(agentId);
 const reply = await this.agentManager.sendToAgent(agentId, prompt);
 
 console.timeEnd("full-agent");
 console.log("SENDTOAGENT RETURNED", Date.now());
 
 if (typeof reply === "string" && reply.trim()) {
+  if (this.agentManager.getStopVersion(agentId) !== stopVersion) {
+    console.log(`  [${agent.display_name}] Reply suppressed because the run was paused.`);
+    continue;
+  }
+
   console.log("ABOUT TO INSERT INTO DB", Date.now());
 
   await this.sendAgentReply(agentId, msg, reply);
@@ -478,9 +717,17 @@ if (typeof reply === "string" && reply.trim()) {
   console.log("DB INSERT FINISHED", Date.now());
 }
       } catch (err) {
+        if (err instanceof AgentPausedError) {
+          console.log(`  [${agent.display_name}] Paused by user.`);
+          continue;
+        }
         this.agentManager.markError(
           agentId,
           err instanceof Error ? err.message : String(err)
+        );
+        await this.insertSystemMessage(
+          msg.channel_id,
+          `@${agent.name} failed to respond: ${err instanceof Error ? err.message : "unknown error"}`
         );
         console.error(
           `  [${agent.display_name}] Error:`,
@@ -631,6 +878,10 @@ if (typeof reply === "string" && reply.trim()) {
             if (action === "skills:list") {
               // Skills are machine-wide, no agentId needed
               responsePayload = await this.listSkills();
+            } else if (agentId && this.agentRecords.has(agentId) && action === "agent:pause") {
+              const stopped = this.agentManager.stopAgent(agentId);
+              this.markSalesWorkflowsStoppedForAgent(agentId);
+              responsePayload = { stopped };
             } else if (agentId && this.agentRecords.has(agentId)) {
               const workDir = this.agentManager.getWorkspaceDir(agentId);
               if (!workDir) {

@@ -6,6 +6,11 @@ import {
   LLMResponse,
 } from "./llm-provider";
 
+function modelFor(model: string) {
+  if (process.env.SCOUT_LLM_MODEL) return process.env.SCOUT_LLM_MODEL;
+  return ["opus", "sonnet", "haiku"].includes(model) ? "gpt-4.1-mini" : model;
+}
+
 export class OpenAIProvider implements LLMProvider {
   private readonly client: OpenAI;
 
@@ -30,7 +35,7 @@ export class OpenAIProvider implements LLMProvider {
     const stream =
     await this.client.chat.completions.create({
 
-        model: request.model,
+        model: modelFor(request.model),
 
         messages: [
 
@@ -49,10 +54,11 @@ export class OpenAIProvider implements LLMProvider {
 ],
 
         temperature: request.temperature ?? 0.2,
+        max_tokens: request.maxTokens,
 
         stream: true,
 
-    });
+    }, { signal: request.signal });
 
     const activity: LLMResponse["activity"] = [];
 

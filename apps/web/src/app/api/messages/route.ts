@@ -4,6 +4,28 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
+async function hasFreshBridgeHeartbeat(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  channelId: string
+) {
+  const { data: channel } = await supabase
+    .from("channels")
+    .select("server_id")
+    .eq("id", channelId)
+    .single();
+  if (!channel?.server_id) return false;
+
+  const since = new Date(Date.now() - 60_000).toISOString();
+  const { data: keys } = await supabase
+    .from("machine_keys")
+    .select("id")
+    .eq("server_id", channel.server_id)
+    .gte("last_used_at", since)
+    .limit(1);
+
+  return Boolean(keys?.length);
+}
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -22,10 +44,13 @@ export async function POST(request: NextRequest) {
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  try {
-    await dispatchMessage(message);
-  } catch (dispatchError) {
-    console.error("Agent dispatch failed", dispatchError);
+  if (!(await hasFreshBridgeHeartbeat(supabase, body.channel_id))) {
+    try {
+      await dispatchMessage(message);
+    } catch (dispatchError) {
+      console.error("Agent dispatch fallback failed", dispatchError);
+    }
   }
+
   return NextResponse.json({ message });
 }

@@ -10,6 +10,7 @@ export interface LLMRequest {
   userPrompt: string;
   workingDirectory: string;
   messages?: LLMMessage[];
+  signal?: AbortSignal;
 
   temperature?: number;
   maxTokens?: number;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -8,9 +8,7 @@ import { GearSix, UserPlus } from '@phosphor-icons/react';
 import TiptapMessageInput, { type TiptapMessageInputHandle } from './tiptap-message-input';
 import { useAgentActivity } from '@/hooks/use-agent-activity';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { GeneratedAvatar } from './generated-avatar';
 import { normalizeLegacyBranding } from '@/lib/branding';
 
@@ -53,6 +51,7 @@ export function MessageArea({
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasContent, setHasContent] = useState(false);
   const [sending, setSending] = useState(false);
+  const [pausing, setPausing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [agentInfo, setAgentInfo] = useState<AgentInfo | null>(null);
   const [channelAgents, setChannelAgents] = useState<Map<string, AgentInfo>>(new Map());
@@ -70,6 +69,38 @@ export function MessageArea({
   const supabase = createClient();
   const agentActivities = useAgentActivity();
 
+  const runningAgentIds = useMemo(() => {
+    const candidateIds =
+      channel?.type === 'dm' && agentInfo
+        ? [agentInfo.id]
+        : Array.from(channelAgents.keys());
+    const activeIds = candidateIds.filter((agentId) => {
+      const activity = agentActivities.get(agentId)?.activity;
+      return activity === 'thinking' || activity === 'working';
+    });
+
+    if (activeIds.length > 0) return activeIds;
+    if (!agentTyping) return [];
+    return candidateIds;
+  }, [agentActivities, agentInfo, agentTyping, channel?.type, channelAgents]);
+
+  const agentsRunning = runningAgentIds.length > 0;
+
+  const visibleMessages = useMemo(() => {
+    return messages.filter((message, index) => {
+      const previous = messages[index - 1];
+      if (!previous) return true;
+
+      const isDuplicate =
+        previous.sender_id === message.sender_id &&
+        previous.sender_type === message.sender_type &&
+        previous.content === message.content &&
+        Math.abs(new Date(message.created_at).getTime() - new Date(previous.created_at).getTime()) < 10_000;
+
+      return !isDuplicate;
+    });
+  }, [messages]);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) setUserId(user.id);
@@ -79,12 +110,14 @@ export function MessageArea({
   useEffect(() => {
     if (!channel) return;
 
-    setMessages([]);
-    setAgentInfo(null);
-    setChannelAgents(new Map());
-    setAgentTyping(false);
-    setHasMore(true);
-    setLoadingMore(false);
+    queueMicrotask(() => {
+      setMessages([]);
+      setAgentInfo(null);
+      setChannelAgents(new Map());
+      setAgentTyping(false);
+      setHasMore(true);
+      setLoadingMore(false);
+    });
     isNearBottomRef.current = true;
 
     async function loadChannel() {
@@ -155,6 +188,18 @@ export function MessageArea({
           if (!newMsg.thread_parent_id) {
             setMessages((prev) => {
               if (prev.some((m) => m.id === newMsg.id)) return prev;
+              const optimisticIndex = prev.findIndex(
+                (m) =>
+                  m.id.startsWith('optimistic-') &&
+                  m.sender_id === newMsg.sender_id &&
+                  m.sender_type === newMsg.sender_type &&
+                  m.content === newMsg.content,
+              );
+              if (optimisticIndex !== -1) {
+                const next = [...prev];
+                next[optimisticIndex] = newMsg;
+                return next;
+              }
               return [...prev, newMsg];
             });
             if (newMsg.sender_type === 'agent') {
@@ -193,7 +238,7 @@ export function MessageArea({
 
       if (data && data.length > 0) {
         setMessages((prev) => {
-          let updated = [...prev];
+          const updated = [...prev];
           for (const msg of data) {
             if (!updated.some((m) => m.id === msg.id)) {
               updated.push(msg as Message);
@@ -303,30 +348,88 @@ export function MessageArea({
       };
       setMessages((prev) => [...prev, optimisticMsg]);
 
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel_id: channel.id, content }),
-      });
-      const payload = await response.json();
-      const inserted = response.ok ? payload.message : null;
-
-      if (inserted) {
-        setMessages((prev) => {
-          const withoutOptimistic = prev.filter((message) => message.id !== optimisticMsg.id);
-          if (withoutOptimistic.some((message) => message.id === inserted.id)) {
-            return withoutOptimistic;
-          }
-          return [...withoutOptimistic, { ...inserted, profiles: null } as Message];
+      try {
+        const response = await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel_id: channel.id, content }),
         });
-      } else {
-        setMessages((prev) => prev.filter((message) => message.id !== optimisticMsg.id));
-      }
+        const payload = await response.json();
+        const inserted = response.ok ? payload.message : null;
 
+        if (inserted) {
+          setMessages((prev) => {
+            const withoutOptimistic = prev.filter((message) => message.id !== optimisticMsg.id);
+            if (withoutOptimistic.some((message) => message.id === inserted.id)) {
+              return withoutOptimistic;
+            }
+            return [...withoutOptimistic, { ...inserted, profiles: null } as Message];
+          });
+        } else {
+          setMessages((prev) => prev.filter((message) => message.id !== optimisticMsg.id));
+        }
+      } catch {
+        setMessages((prev) => prev.filter((message) => message.id !== optimisticMsg.id));
+      } finally {
+        setSending(false);
+        inputRef.current?.focus();
+      }
+    },
+    [channel, userId, channelAgents],
+  );
+
+  const pauseAgents = useCallback(async () => {
+    if (runningAgentIds.length === 0 || pausing) return;
+
+    setPausing(true);
+    try {
       setSending(false);
+      await new Promise<void>((resolve) => {
+        const rpcChannel = supabase.channel('bridge-rpc');
+
+        rpcChannel.subscribe(async (status) => {
+          if (status !== 'SUBSCRIBED') return;
+
+          await Promise.all(
+            runningAgentIds.map((agentId) =>
+              rpcChannel.send({
+                type: 'broadcast',
+                event: 'rpc:request',
+                payload: {
+                  requestId: `pause-${agentId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                  agentId,
+                  action: 'agent:pause',
+                },
+              }),
+            ),
+          );
+
+          supabase.removeChannel(rpcChannel);
+          resolve();
+        });
+      });
+
+      setAgentTyping(false);
+      typingStartRef.current = null;
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+    } finally {
+      setPausing(false);
+      inputRef.current?.focus();
+    }
+  }, [pausing, runningAgentIds, supabase]);
+
+  const selectMention = useCallback(
+    (displayName: string) => {
+      if (mentionQuery === null) return;
+      inputRef.current?.replaceMention(mentionQuery, `@${displayName} `);
+      setMentionQuery(null);
+      setMentionIndex(0);
       inputRef.current?.focus();
     },
-    [channel, userId, supabase, channelAgents],
+    [mentionQuery],
   );
 
   if (!channel) {
@@ -454,13 +557,12 @@ export function MessageArea({
             <span className="text-xs text-muted-foreground">Beginning of conversation</span>
           </div>
         )}
-        {messages.map((msg, i) => {
-          const prevMsg = messages[i - 1];
+        {visibleMessages.map((msg, i) => {
+          const prevMsg = visibleMessages[i - 1];
           const sameSender =
             prevMsg &&
             prevMsg.sender_id === msg.sender_id &&
             new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 5 * 60 * 1000;
-          const isOwn = msg.sender_id === userId;
 
           return (
             <div
@@ -606,10 +708,8 @@ export function MessageArea({
                     type="button"
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      inputRef.current?.replaceMention(mentionQuery, `@${agent.display_name} `);
-                      setMentionQuery(null);
-                      setMentionIndex(0);
-                      inputRef.current?.focus();
+                      // eslint-disable-next-line react-hooks/refs -- This runs from the mouse handler, not during render.
+                      selectMention(agent.display_name);
                     }}
                     className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-[13px] transition-colors ${
                       i === mentionIndex
@@ -693,15 +793,20 @@ export function MessageArea({
             <Button
               type="button"
               onClick={() => {
+                if (agentsRunning) {
+                  pauseAgents();
+                  return;
+                }
                 const md = inputRef.current?.getMarkdown() ?? '';
                 if (md.trim()) {
                   doSend(md);
                   inputRef.current?.clear();
                 }
               }}
-              disabled={sending || !hasContent}
+              disabled={agentsRunning ? pausing : sending || !hasContent}
+              variant={agentsRunning ? 'destructive-outline' : 'default'}
               size="sm">
-              {sending ? 'Sending...' : 'Send'}
+              {agentsRunning ? (pausing ? 'Pausing...' : 'Pause') : sending ? 'Sending...' : 'Send'}
             </Button>
           </div>
         </div>

@@ -16,6 +16,7 @@ const __dirname = dirname(__filename);
 
 const ACTIVITY_HEARTBEAT_MS = 60_000; // Re-broadcast active state every 60s
 const CODEX_TURN_TIMEOUT_MS = Number(process.env.SCOUT_CODEX_TURN_TIMEOUT_MS || 300_000);
+const PROVIDER_TURN_TIMEOUT_MS = Number(process.env.SCOUT_PROVIDER_TURN_TIMEOUT_MS || 120_000);
 const AGENT_RUNNER = (process.env.SCOUT_AGENT_RUNNER || "codex").toLowerCase();
 const CODEX_COMMAND = process.env.SCOUT_CODEX_COMMAND || "codex";
 
@@ -47,6 +48,10 @@ interface AgentProcess {
   proc: ChildProcess;
   sessionId: string | null;
   busy: boolean;
+  stopVersion: number;
+  stopRequested: boolean;
+  currentAbortController: AbortController | null;
+  currentTurnProc: ChildProcess | null;
   stdoutBuffer: string;
   activity: AgentActivity;
   activityLabel: string;
@@ -56,6 +61,13 @@ interface AgentProcess {
   /** Accumulated text content from assistant text events */
   pendingText: string;
   runner: "claude" | "codex";
+}
+
+export class AgentPausedError extends Error {
+  constructor() {
+    super("Agent paused");
+    this.name = "AgentPausedError";
+  }
 }
 
 function resolveExecutable(name: string) {
@@ -70,6 +82,10 @@ function resolveExecutable(name: string) {
     command: name,
     argsPrefix: [],
   };
+}
+
+function getLoginShellPath(prepend: string[] = []) {
+  return [...prepend, process.env.PATH ?? ""].filter(Boolean).join(delimiter);
 }
 
 export class AgentManager {
@@ -179,6 +195,35 @@ export class AgentManager {
 
   markError(agentId: string, message: string) {
     this.broadcastActivity(agentId, "error", "Error", message);
+  }
+
+  stopAgent(agentId: string): boolean {
+    const agentProc = this.processes.get(agentId);
+    if (!agentProc) return false;
+
+    agentProc.stopRequested = true;
+    agentProc.stopVersion += 1;
+
+    for (const queued of agentProc.messageQueue) {
+      queued.reject(new AgentPausedError());
+    }
+    agentProc.messageQueue = [];
+
+    agentProc.currentAbortController?.abort();
+    if (agentProc.currentTurnProc && !agentProc.currentTurnProc.killed) {
+      agentProc.currentTurnProc.kill();
+    }
+
+    if (agentProc.runner === "claude" && !agentProc.proc.killed) {
+      agentProc.proc.kill();
+    }
+
+    this.broadcastActivity(agentId, "idle", "Paused", "");
+    return true;
+  }
+
+  getStopVersion(agentId: string): number {
+    return this.processes.get(agentId)?.stopVersion ?? 0;
   }
 
   /**
@@ -591,6 +636,10 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
         proc,
         sessionId: prevProc?.sessionId || null,
         busy: false,
+        stopVersion: prevProc?.stopVersion ?? 0,
+        stopRequested: false,
+        currentAbortController: null,
+        currentTurnProc: null,
         stdoutBuffer: "",
         activity: "working",
         activityLabel: "Working",
@@ -670,6 +719,10 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
       proc,
       sessionId: prevProc?.sessionId || null,
       busy: false,
+      stopVersion: prevProc?.stopVersion ?? 0,
+      stopRequested: false,
+      currentAbortController: null,
+      currentTurnProc: null,
       stdoutBuffer: "",
       activity: "working",
       activityLabel: "Working",
@@ -804,6 +857,8 @@ ${userMessage}`;
         });
 
       console.log("Spawned Codex PID:", turnProc.pid);
+      agentProc.stopRequested = false;
+      agentProc.currentTurnProc = turnProc;
 
       turnProc.stdin?.on("error", (err: Error & { code?: string }) => {
         if (err.code !== "EPIPE") {
@@ -827,6 +882,7 @@ ${userMessage}`;
           finish(() => {
             turnProc.kill();
             agentProc.busy = false;
+            agentProc.currentTurnProc = null;
             this.broadcastActivity(
               agentId,
               "error",
@@ -879,6 +935,7 @@ ${userMessage}`;
         });
         turnProc.on("error", (err: Error) => {
           finish(() => {
+            agentProc.currentTurnProc = null;
             agentProc.busy = false;
             this.broadcastActivity(agentId, "error", "Error", err.message);
             console.error(
@@ -895,6 +952,16 @@ ${userMessage}`;
           console.log("stdout so far:\n", stdoutBuffer);
 
           finish(() => {
+            agentProc.currentTurnProc = null;
+            if (agentProc.stopRequested) {
+              agentProc.stopRequested = false;
+              agentProc.busy = false;
+              this.broadcastActivity(agentId, "idle", "Paused", "");
+              this.drainQueue(agentId, agentProc);
+              reject(new AgentPausedError());
+              return;
+            }
+
             if (code !== 0) {
               console.log("===== RAW STDOUT =====");
               console.log(stdoutRaw);
@@ -925,6 +992,10 @@ ${userMessage}`;
       const message = err instanceof Error ? err.message : String(err);
 
       agentProc.busy = false;
+      agentProc.currentTurnProc = null;
+      if (err instanceof AgentPausedError) {
+        throw err;
+      }
       this.broadcastActivity(agentId, "error", "Error", message);
       console.error(
         `  [${session.displayName}] Failed to start Codex turn: ${message}`
@@ -1134,7 +1205,18 @@ ${userMessage}`;
         memoryContext
       );
 
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+
     try {
+      const abortController = new AbortController();
+      timeout = setTimeout(() => {
+        timedOut = true;
+        agentProc.stopRequested = true;
+        abortController.abort();
+      }, PROVIDER_TURN_TIMEOUT_MS);
+      agentProc.stopRequested = false;
+      agentProc.currentAbortController = abortController;
 
       const result =
         await this.llmProvider.generate({
@@ -1154,7 +1236,14 @@ ${userMessage}`;
           messages:
             session.conversation,
 
+          signal:
+            abortController.signal,
+
         });
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
         if (result.activity) {
 
     for (const update of result.activity) {
@@ -1204,6 +1293,22 @@ ${userMessage}`;
     } catch (err) {
 
       agentProc.busy = false;
+      agentProc.currentAbortController = null;
+
+      if (agentProc.stopRequested) {
+        agentProc.stopRequested = false;
+        this.broadcastActivity(
+          agentId,
+          "idle",
+          "Paused",
+          ""
+        );
+        this.drainQueue(
+          agentId,
+          agentProc
+        );
+        throw timedOut ? new Error("Agent response timed out") : new AgentPausedError();
+      }
 
       this.broadcastActivity(
         agentId,
@@ -1218,6 +1323,12 @@ ${userMessage}`;
       );
 
       throw err;
+
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      agentProc.currentAbortController = null;
 
     }
 

@@ -1,0 +1,21 @@
+# Dependencies
+node_modules
+
+# Next.js
+.next
+
+# Turbo cache
+.turbo
+
+# Git
+.git
+
+# Bridge build artifacts
+deploy
+installer/output
+
+# Archives
+*.zip
+
+# Logs
+*.log

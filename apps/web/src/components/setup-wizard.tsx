@@ -223,3 +223,14 @@
 //     </Dialog>
 //   );
 // }
+"use client";
+
+interface SetupWizardProps {
+  serverId: string;
+  serverSlug: string;
+  onComplete: () => void;
+}
+
+export function SetupWizard(_: SetupWizardProps) {
+  return null;
+}

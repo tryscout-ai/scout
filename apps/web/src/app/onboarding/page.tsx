@@ -12,6 +12,8 @@ import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { normalizeWebsite } from "@/lib/workspace-context";
 
+type OnboardingStep = "company" | "customers" | "goals";
+
 interface ServerContext {
   id: string;
   slug: string;
@@ -51,9 +53,43 @@ function OnboardingContent() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(true);
+  const [step, setStep] = useState<OnboardingStep>("company");
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedServerId = searchParams.get("server");
+
+  const companyComplete =
+    companyName.trim() && companyWebsite.trim() && companyDescription.trim();
+  const customersComplete = icp.trim() && niche.trim();
+  const goalsComplete = agentGoals.trim();
+
+  function goNext() {
+    setError("");
+
+    if (step === "company") {
+      if (!companyComplete) {
+        setError("Company name, website, and description are required.");
+        return;
+      }
+
+      setStep("customers");
+      return;
+    }
+
+    if (step === "customers") {
+      if (!customersComplete) {
+        setError("Ideal customer profile and niche are required.");
+        return;
+      }
+
+      setStep("goals");
+    }
+  }
+
+  function goBack() {
+    setError("");
+    setStep(step === "goals" ? "customers" : "company");
+  }
 
   useEffect(() => {
     async function load() {
@@ -207,7 +243,7 @@ function OnboardingContent() {
 
   return (
     <div className="flex h-full items-center justify-center bg-background">
-      <div className="w-full max-w-2xl mx-4">
+      <div className="w-full max-w-xl mx-4">
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="text-xl">Tell Scout about your company</CardTitle>
@@ -217,104 +253,161 @@ function OnboardingContent() {
           </CardHeader>
           <form onSubmit={handleSubmit}>
             <CardPanel>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field>
-                  <FieldLabel>Company name</FieldLabel>
-                  <Input
-                    value={companyName}
-                    onChange={(e) => setCompanyName((e.target as HTMLInputElement).value)}
-                    placeholder="Acme Inc"
-                    required
-                    autoFocus
-                  />
-                </Field>
+              <div className="mb-6 grid grid-cols-3 gap-2 text-xs font-medium text-muted-foreground">
+                {[
+                  ["company", "Company"],
+                  ["customers", "Customers"],
+                  ["goals", "Agent goals"],
+                ].map(([value, label], index) => {
+                  const activeIndex = ["company", "customers", "goals"].indexOf(step);
+                  return (
+                    <div
+                      key={value}
+                      className={`rounded-md px-3 py-2 text-center ${
+                        index <= activeIndex ? "bg-primary text-primary-foreground" : "bg-muted"
+                      }`}
+                    >
+                      {label}
+                    </div>
+                  );
+                })}
+              </div>
 
-                <Field>
-                  <FieldLabel>Company website</FieldLabel>
-                  <Input
-                    value={companyWebsite}
-                    onChange={(e) => setCompanyWebsite((e.target as HTMLInputElement).value)}
-                    placeholder="acme.com"
-                    required
-                  />
-                </Field>
+              <div className="space-y-4">
+                {step === "company" && (
+                  <>
+                    <Field>
+                      <FieldLabel>Company name</FieldLabel>
+                      <Input
+                        value={companyName}
+                        onChange={(e) => setCompanyName((e.target as HTMLInputElement).value)}
+                        placeholder="Acme Inc"
+                        required
+                        autoFocus
+                      />
+                    </Field>
 
-                <Field className="sm:col-span-2">
-                  <FieldLabel>What does the company do?</FieldLabel>
-                  <Textarea
-                    value={companyDescription}
-                    onChange={(e) => setCompanyDescription((e.target as HTMLTextAreaElement).value)}
-                    placeholder="A short, plain-English description of your product, market, and customers."
-                    required
-                  />
-                </Field>
+                    <Field>
+                      <FieldLabel>Company website</FieldLabel>
+                      <Input
+                        value={companyWebsite}
+                        onChange={(e) => setCompanyWebsite((e.target as HTMLInputElement).value)}
+                        placeholder="acme.com"
+                        required
+                      />
+                    </Field>
 
-                <Field className="sm:col-span-2">
-                  <FieldLabel>Ideal customer profile</FieldLabel>
-                  <Textarea
-                    value={icp}
-                    onChange={(e) => setIcp((e.target as HTMLTextAreaElement).value)}
-                    placeholder="Who should your agents research, qualify, or contact?"
-                    required
-                  />
-                </Field>
+                    <Field>
+                      <FieldLabel>What does the company do?</FieldLabel>
+                      <Textarea
+                        value={companyDescription}
+                        onChange={(e) => setCompanyDescription((e.target as HTMLTextAreaElement).value)}
+                        placeholder="A short, plain-English description of your product, market, and customers."
+                        required
+                      />
+                    </Field>
+                  </>
+                )}
 
-                <Field>
-                  <FieldLabel>Niche or market</FieldLabel>
-                  <Input
-                    value={niche}
-                    onChange={(e) => setNiche((e.target as HTMLInputElement).value)}
-                    placeholder="B2B SaaS sales teams"
-                    required
-                  />
-                </Field>
+                {step === "customers" && (
+                  <>
+                    <Field>
+                      <FieldLabel>Ideal customer profile</FieldLabel>
+                      <Textarea
+                        value={icp}
+                        onChange={(e) => setIcp((e.target as HTMLTextAreaElement).value)}
+                        placeholder="Who should your agents research, qualify, or contact?"
+                        required
+                        autoFocus
+                      />
+                    </Field>
 
-                <Field>
-                  <FieldLabel>
-                    Current workflow/tools <span className="text-muted-foreground font-normal">(optional)</span>
-                  </FieldLabel>
-                  <Input
-                    value={currentWorkflow}
-                    onChange={(e) => setCurrentWorkflow((e.target as HTMLInputElement).value)}
-                    placeholder="HubSpot, Clay, Apollo, Slack..."
-                  />
-                </Field>
+                    <Field>
+                      <FieldLabel>Niche or market</FieldLabel>
+                      <Input
+                        value={niche}
+                        onChange={(e) => setNiche((e.target as HTMLInputElement).value)}
+                        placeholder="B2B SaaS sales teams"
+                        required
+                      />
+                    </Field>
 
-                <Field className="sm:col-span-2">
-                  <FieldLabel>What should Scout agents help with?</FieldLabel>
-                  <Textarea
-                    value={agentGoals}
-                    onChange={(e) => setAgentGoals((e.target as HTMLTextAreaElement).value)}
-                    placeholder="Research accounts, draft outreach, qualify leads, coordinate approvals..."
-                    required
-                  />
-                  <FieldDescription>
-                    Agents will use this to make their research, recommendations, and handoffs more specific.
-                  </FieldDescription>
-                </Field>
+                    <Field>
+                      <FieldLabel>
+                        Current workflow/tools <span className="text-muted-foreground font-normal">(optional)</span>
+                      </FieldLabel>
+                      <Input
+                        value={currentWorkflow}
+                        onChange={(e) => setCurrentWorkflow((e.target as HTMLInputElement).value)}
+                        placeholder="HubSpot, Clay, Apollo, Slack..."
+                      />
+                    </Field>
+                  </>
+                )}
 
-                <Field className="sm:col-span-2">
-                  <FieldLabel>
-                    Extra context <span className="text-muted-foreground font-normal">(optional)</span>
-                  </FieldLabel>
-                  <Textarea
-                    value={contextNotes}
-                    onChange={(e) => setContextNotes((e.target as HTMLTextAreaElement).value)}
-                    placeholder="Tone, constraints, approvals, qualification rules, or anything agents should avoid."
-                  />
-                </Field>
+                {step === "goals" && (
+                  <>
+                    <Field>
+                      <FieldLabel>What should Scout agents help with?</FieldLabel>
+                      <Textarea
+                        value={agentGoals}
+                        onChange={(e) => setAgentGoals((e.target as HTMLTextAreaElement).value)}
+                        placeholder="Research accounts, draft outreach, qualify leads, coordinate approvals..."
+                        required
+                        autoFocus
+                      />
+                      <FieldDescription>
+                        Agents will use this to make their research, recommendations, and handoffs more specific.
+                      </FieldDescription>
+                    </Field>
+
+                    <Field>
+                      <FieldLabel>
+                        Extra context <span className="text-muted-foreground font-normal">(optional)</span>
+                      </FieldLabel>
+                      <Textarea
+                        value={contextNotes}
+                        onChange={(e) => setContextNotes((e.target as HTMLTextAreaElement).value)}
+                        placeholder="Tone, constraints, approvals, qualification rules, or anything agents should avoid."
+                      />
+                    </Field>
+                  </>
+                )}
 
                 {error && (
-                  <Alert variant="error" className="sm:col-span-2">
+                  <Alert variant="error">
                     <AlertDescription>{error}</AlertDescription>
                   </Alert>
                 )}
               </div>
             </CardPanel>
             <CardFooter>
-              <Button type="submit" loading={saving} className="w-full">
-                Save and enter workspace
-              </Button>
+              <div className="flex w-full gap-2">
+                {step !== "company" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="flex-1"
+                    onClick={goBack}
+                  >
+                    Back
+                  </Button>
+                )}
+                {step !== "goals" ? (
+                  <Button type="button" onClick={goNext} className="flex-1">
+                    Continue
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    loading={saving}
+                    disabled={!goalsComplete}
+                    className="flex-1"
+                  >
+                    Save and enter workspace
+                  </Button>
+                )}
+              </div>
             </CardFooter>
           </form>
         </Card>

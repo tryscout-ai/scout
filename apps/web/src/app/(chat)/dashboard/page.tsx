@@ -28,11 +28,16 @@ export default function ChatRedirect() {
       if (memberships && memberships.length > 0) {
         const { data: server } = await supabase
           .from("servers")
-          .select("slug")
+          .select("slug, onboarding_completed_at")
           .eq("id", memberships[0].server_id)
           .single();
 
         if (server) {
+          if (!server.onboarding_completed_at) {
+            router.replace("/onboarding");
+            return;
+          }
+
           router.replace(`/s/${server.slug}`);
           return;
         }

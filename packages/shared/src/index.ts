@@ -45,6 +45,15 @@ export interface Server {
   name: string;
   slug: string;
   description: string | null;
+  company_name: string | null;
+  company_website: string | null;
+  company_description: string | null;
+  icp: string | null;
+  niche: string | null;
+  agent_goals: string | null;
+  current_workflow: string | null;
+  context_notes: string | null;
+  onboarding_completed_at: string | null;
   owner_id: string;
   created_at: string;
 }

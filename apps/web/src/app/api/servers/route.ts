@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes, createHash } from "crypto";
 import { createClient } from "@/lib/supabase/server";
+import {
+  isWorkspaceContextComplete,
+  normalizeWorkspaceContext,
+} from "@/lib/workspace-context";
 
 // GET /api/servers — list servers the user belongs to
 export async function GET() {
@@ -51,6 +55,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const { name, description, slug: userSlug } = body;
+  const workspaceContext = normalizeWorkspaceContext(body);
 
   if (!name?.trim()) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -88,6 +93,10 @@ export async function POST(request: NextRequest) {
       name: name.trim(),
       slug,
       description: description?.trim() || null,
+      ...workspaceContext,
+      onboarding_completed_at: isWorkspaceContextComplete(workspaceContext)
+        ? new Date().toISOString()
+        : null,
       owner_id: user.id,
     })
     .select()

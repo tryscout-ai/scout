@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
   // Load user's agents in this server
   const { data: agents } = await admin
     .from("agents")
-    .select("id, name, display_name, description, model, status")
+    .select("id, name, display_name, description, model, status, server_id")
     .eq("owner_id", keyRecord.user_id)
     .eq("server_id", keyRecord.server_id)
     .order("created_at");

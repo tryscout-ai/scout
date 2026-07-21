@@ -50,7 +50,7 @@ const faqs = [
   {
     question: "Can I self-host Scout agents?",
     answer:
-      "Self-hosting is on our roadmap for teams with strict data residency requirements. Please reachout to know more: hello@tryscout.ai",
+      "Self-hosting is on our roadmap for teams with strict data residency requirements. Please reachout to know more: hello@runscout.app",
   },
 ];
 const testimonials = [

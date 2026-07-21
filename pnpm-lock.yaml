@@ -34,12 +34,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
-<<<<<<< HEAD
       '@scout-ai/scout-bridge':
         specifier: ^0.2.8
         version: 0.2.8
-=======
->>>>>>> a8a7a71f1c3cefd70e00920e9b1ad769e0e84a08
       '@scout-ai/scout-cli':
         specifier: ^0.1.0
         version: 0.1.0
@@ -1797,14 +1794,11 @@ packages:
   '@rushstack/eslint-patch@1.16.1':
     resolution: {integrity: sha512-TvZbIpeKqGQQ7X0zSCvPH9riMSFQFSggnfBjFZ1mEoILW+UuXCKwOoPcgjMwiUtRqFZ8jWhPJc4um14vC6I4ag==}
 
-<<<<<<< HEAD
   '@scout-ai/scout-bridge@0.2.8':
     resolution: {integrity: sha512-SyE+b++I94WfcMItJ4zk/8RQHXHAbZQ+2VcpxcHFXqAcmSvJ4m0NUhiolIqzvRZo47W9vBE5xIZ9GZ+cqI/5RQ==}
     engines: {node: '>=20'}
     hasBin: true
 
-=======
->>>>>>> a8a7a71f1c3cefd70e00920e9b1ad769e0e84a08
   '@scout-ai/scout-cli@0.1.0':
     resolution: {integrity: sha512-N3dFjbST0sibS3E/N13iBlBHuHYTmBg66PhvNqdHtq/UuvEbzGdmFE/eiUC84Anwu78mg+hECbyn5a18VAA7wQ==}
     engines: {node: '>=20'}
@@ -6662,7 +6656,6 @@ packages:
     engines: {node: '>=0.6.0', teleport: '>=0.2.0'}
     deprecated: |-
       You or someone you depend on is using Q, the JavaScript Promise library that gave JavaScript developers strong feelings about promises. They can almost certainly migrate to the native JavaScript promise now. Thank you literally everyone for joining me in this bet against the odds. Be excellent to each other.
-
       (For a CapTP with native promises, see @endo/eventual-send and @endo/captp)
 
   qs@6.14.2:
@@ -9838,7 +9831,6 @@ snapshots:
 
   '@rushstack/eslint-patch@1.16.1': {}
 
-<<<<<<< HEAD
   '@scout-ai/scout-bridge@0.2.8':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
@@ -9849,8 +9841,6 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-=======
->>>>>>> a8a7a71f1c3cefd70e00920e9b1ad769e0e84a08
   '@scout-ai/scout-cli@0.1.0':
     dependencies:
       '@supabase/supabase-js': 2.106.1

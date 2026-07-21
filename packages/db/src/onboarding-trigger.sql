@@ -7,21 +7,76 @@ DECLARE
   onboarding_channel_id uuid;
   dm_channel_id uuid;
   server_slug text;
+  signup_metadata jsonb;
+  company_name text;
+  company_website text;
+  company_description text;
+  icp text;
+  niche text;
+  agent_goals text;
+  current_workflow text;
+  context_notes text;
 BEGIN
   server_id := public.uuid_generate_v4();
   agent_id := public.uuid_generate_v4();
   onboarding_channel_id := public.uuid_generate_v4();
   dm_channel_id := public.uuid_generate_v4();
-  server_slug := lower(regexp_replace(new.display_name, '[^a-zA-Z0-9]+', '-', 'g'));
+  SELECT raw_user_meta_data INTO signup_metadata
+  FROM auth.users
+  WHERE id = new.id;
+
+  company_name := nullif(trim(coalesce(signup_metadata->>'company_name', '')), '');
+  company_website := nullif(trim(coalesce(signup_metadata->>'company_website', '')), '');
+  company_description := nullif(trim(coalesce(signup_metadata->>'company_description', '')), '');
+  icp := nullif(trim(coalesce(signup_metadata->>'icp', '')), '');
+  niche := nullif(trim(coalesce(signup_metadata->>'niche', '')), '');
+  agent_goals := nullif(trim(coalesce(signup_metadata->>'agent_goals', '')), '');
+  current_workflow := nullif(trim(coalesce(signup_metadata->>'current_workflow', '')), '');
+  context_notes := nullif(trim(coalesce(signup_metadata->>'context_notes', '')), '');
+
+  server_slug := lower(regexp_replace(coalesce(company_name, new.display_name), '[^a-zA-Z0-9]+', '-', 'g'));
   server_slug := trim(both '-' from server_slug) || '-' || substr(new.id::text, 1, 8);
 
   -- Create the user's first workspace
-  INSERT INTO public.servers (id, name, slug, description, owner_id)
+  INSERT INTO public.servers (
+    id,
+    name,
+    slug,
+    description,
+    company_name,
+    company_website,
+    company_description,
+    icp,
+    niche,
+    agent_goals,
+    current_workflow,
+    context_notes,
+    onboarding_completed_at,
+    owner_id
+  )
   VALUES (
     server_id,
-    new.display_name || '''s workspace',
+    coalesce(company_name, new.display_name || '''s workspace'),
     server_slug,
-    'Your first Scout workspace',
+    coalesce(company_description, 'Your first Scout workspace'),
+    company_name,
+    company_website,
+    company_description,
+    icp,
+    niche,
+    agent_goals,
+    current_workflow,
+    context_notes,
+    case
+      when company_name is not null
+       and company_website is not null
+       and company_description is not null
+       and icp is not null
+       and niche is not null
+       and agent_goals is not null
+      then now()
+      else null
+    end,
     new.id
   );
 
@@ -35,7 +90,7 @@ BEGIN
     'onboarding-' || substr(new.id::text, 1, 8),
     'Onboarding Assistant',
     'Your guide to setting up Scout',
-    E'You are the Onboarding Assistant for Scout — a collaborative platform where humans work with AI agents.\n\nYour job is to onboard the user step by step. Follow these goals (soft guidance, do not force):\n1. First, ask what language they prefer. Then use that language for the rest of the conversation.\n2. Help them understand what Scout is and get comfortable using it.\n3. Learn about their work, goals, and what they need help with.\n4. Guide them to create an initial team of AI agents (target: at least 2-3 agents) tailored to their needs.\n5. Help them create useful channels for organizing their work.\n\nRules:\n- Keep it simple and conversational. One actionable next step at a time.\n- No info dumps, no checklist-style interrogation.\n- Ask thoughtful questions to understand what kind of agents would be most useful.\n- When you have enough context, suggest specific agent configurations (name, role, description).\n- Be warm, proactive, and helpful.',
+    E'You are the Onboarding Assistant for Scout — a collaborative platform where humans work with AI agents.\n\nYour job is to onboard the user step by step. The workspace may already include company context captured during signup. Use that context first; do not ask the user to repeat company name, website, ICP, niche, or goals unless something is missing or unclear.\n\nFollow these goals (soft guidance, do not force):\n1. First, ask what language they prefer. Then use that language for the rest of the conversation.\n2. Briefly reflect the company context you have and ask for corrections or gaps.\n3. Help them understand what Scout is and get comfortable using it.\n4. Guide them to create an initial team of AI agents (target: at least 2-3 agents) tailored to their company, ICP, niche, and goals.\n5. Help them create useful channels for organizing their work.\n\nRules:\n- Keep it simple and conversational. One actionable next step at a time.\n- No info dumps, no checklist-style interrogation.\n- Ask thoughtful clarification questions only where the captured context is incomplete or ambiguous.\n- When you have enough context, suggest specific agent configurations (name, role, description).\n- Be warm, proactive, and helpful.',
     'offline',
     new.id,
     server_id
@@ -82,7 +137,7 @@ BEGIN
     onboarding_channel_id,
     agent_id,
     'system',
-    'Onboarding task (system-triggered): Please proactively onboard @' || new.display_name || ' in this channel. Default language is English; first ask what language they prefer.'
+    'Onboarding task (system-triggered): Please proactively onboard @' || new.display_name || ' in this channel. Default language is English; first ask what language they prefer, then use the captured workspace context before asking for more company details.'
   );
 
   -- Onboarding Agent welcome message

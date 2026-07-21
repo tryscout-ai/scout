@@ -12,9 +12,29 @@ CREATE TABLE IF NOT EXISTS public.servers (
   name text NOT NULL,
   slug text NOT NULL UNIQUE,
   description text,
+  company_name text,
+  company_website text,
+  company_description text,
+  icp text,
+  niche text,
+  agent_goals text,
+  current_workflow text,
+  context_notes text,
+  onboarding_completed_at timestamptz,
   owner_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.servers
+  ADD COLUMN IF NOT EXISTS company_name text,
+  ADD COLUMN IF NOT EXISTS company_website text,
+  ADD COLUMN IF NOT EXISTS company_description text,
+  ADD COLUMN IF NOT EXISTS icp text,
+  ADD COLUMN IF NOT EXISTS niche text,
+  ADD COLUMN IF NOT EXISTS agent_goals text,
+  ADD COLUMN IF NOT EXISTS current_workflow text,
+  ADD COLUMN IF NOT EXISTS context_notes text,
+  ADD COLUMN IF NOT EXISTS onboarding_completed_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS public.server_members (
   server_id uuid NOT NULL REFERENCES public.servers(id) ON DELETE CASCADE,

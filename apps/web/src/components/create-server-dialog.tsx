@@ -63,9 +63,12 @@ export function CreateServerDialog({ open, onClose }: CreateServerDialogProps) {
         throw new Error(data.error || "Failed to create workspace");
       }
 
-      const { server } = await res.json();
+      const { server, apiKey } = await res.json();
+      if (apiKey) {
+        sessionStorage.setItem("scout_setup_key", apiKey);
+      }
       onClose();
-      router.push(`/s/${server.slug}`);
+      router.push(`/onboarding?server=${server.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create workspace");
     } finally {

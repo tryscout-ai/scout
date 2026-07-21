@@ -5,7 +5,11 @@ import { createRequire } from "node:module";
 import { spawn, ChildProcess } from "child_process";
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { normalizeLegacyBranding } from "./branding.js";
-import { buildSystemPrompt } from "./system-prompt.js";
+import {
+  buildSystemPrompt,
+  formatWorkspaceContext,
+  type WorkspaceContext,
+} from "./system-prompt.js";
 import { spawnSync } from "child_process";
 import { LLMMessage, LLMProvider } from "./providers/llm-provider.js";
 
@@ -28,6 +32,7 @@ interface AgentRecord {
   system_prompt: string | null;
   model: string;
   status: string;
+  server_id: string;
 }
 
 interface AgentSession {
@@ -350,6 +355,18 @@ export class AgentManager {
     return data?.session_id || null;
   }
 
+  private async loadWorkspaceContext(serverId: string): Promise<WorkspaceContext | null> {
+    const { data } = await this.supabase
+      .from("servers")
+      .select(
+        "company_name, company_website, company_description, icp, niche, agent_goals, current_workflow, context_notes",
+      )
+      .eq("id", serverId)
+      .single();
+
+    return (data as WorkspaceContext | null) ?? null;
+  }
+
   async initAgent(agentId: string, agent: AgentRecord) {
     const workDir = join(this.agentsDir, agentId);
 
@@ -358,6 +375,9 @@ export class AgentManager {
       mkdirSync(workDir, { recursive: true });
       mkdirSync(join(workDir, "notes"), { recursive: true });
 
+      const workspaceContext = await this.loadWorkspaceContext(agent.server_id);
+      const formattedWorkspaceContext = formatWorkspaceContext(workspaceContext);
+
       // Write initial MEMORY.md
       const memoryContent = `# ${agent.display_name}
 
@@ -365,7 +385,11 @@ export class AgentManager {
 ${normalizeLegacyBranding(agent.description || agent.display_name)}
 
 ## Key Knowledge
-- No notes saved yet. Knowledge will accumulate through conversations.
+${formattedWorkspaceContext ? `- Read the Workspace Context section below before making recommendations.
+
+## Workspace Context
+${formattedWorkspaceContext}
+` : "- No notes saved yet. Knowledge will accumulate through conversations."}
 
 ## Active Context
 - Status: First startup — no prior conversations.
@@ -427,7 +451,10 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
     const memoryPath = join(session.workDir, "MEMORY.md");
     const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
 
-    const systemPrompt = buildSystemPrompt(agent, memoryContext);
+    const workspaceContext = agent?.server_id
+      ? await this.loadWorkspaceContext(agent.server_id)
+      : null;
+    const systemPrompt = buildSystemPrompt(agent, memoryContext, workspaceContext);
 
     // Ensure a persistent process is running
     let agentProc = this.processes.get(agentId);
@@ -547,7 +574,10 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
     const memoryPath = join(session.workDir, "MEMORY.md");
     const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
 
-    const systemPrompt = buildSystemPrompt(agent, memoryContext);
+    const workspaceContext = agent?.server_id
+      ? await this.loadWorkspaceContext(agent.server_id)
+      : null;
+    const systemPrompt = buildSystemPrompt(agent, memoryContext, workspaceContext);
 
     // Spawn new process — will resume the session via saved sessionId
     const newProc = await this.spawnProcess(
@@ -794,8 +824,10 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
         .eq("id", agentId)
         .single();
 
-      const systemPrompt = buildSystemPrompt(agent, memoryContext);
-
+      const workspaceContext = agent?.server_id
+        ? await this.loadWorkspaceContext(agent.server_id)
+        : null;
+      const systemPrompt = buildSystemPrompt(agent, memoryContext, workspaceContext);
       const prompt = `${systemPrompt}
 
 ## Codex bridge response mode

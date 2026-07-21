@@ -11,6 +11,7 @@ interface Server {
   name: string;
   slug: string;
   description: string | null;
+  onboarding_completed_at: string | null;
   owner_id: string;
 }
 
@@ -46,6 +47,11 @@ export default function ServerLayout({
       if (!data) {
         // Server not found, redirect to home
         router.push("/");
+        return;
+      }
+
+      if (!data.onboarding_completed_at) {
+        router.push(`/onboarding?server=${data.id}`);
         return;
       }
 

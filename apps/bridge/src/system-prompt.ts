@@ -7,9 +7,40 @@ interface AgentRecord {
   system_prompt: string | null;
 }
 
+export interface WorkspaceContext {
+  company_name: string | null;
+  company_website: string | null;
+  company_description: string | null;
+  icp: string | null;
+  niche: string | null;
+  agent_goals: string | null;
+  current_workflow: string | null;
+  context_notes: string | null;
+}
+
+export function formatWorkspaceContext(context: WorkspaceContext | null): string {
+  if (!context) return "";
+
+  const lines = [
+    ["Company", context.company_name],
+    ["Website", context.company_website],
+    ["What the company does", context.company_description],
+    ["Ideal customer profile", context.icp],
+    ["Niche or market", context.niche],
+    ["What Scout agents should help with", context.agent_goals],
+    ["Current workflow/tools", context.current_workflow],
+    ["Extra context", context.context_notes],
+  ]
+    .filter(([, value]) => value && value.trim())
+    .map(([label, value]) => `- ${label}: ${normalizeLegacyBranding(value || "")}`);
+
+  return lines.length > 0 ? lines.join("\n") : "";
+}
+
 export function buildSystemPrompt(
   agent: AgentRecord,
-  memoryContext: string
+  memoryContext: string,
+  workspaceContext: WorkspaceContext | null = null
 ): string {
   const agentInstructions = normalizeLegacyBranding(
     agent.system_prompt || `You are ${agent.display_name}.`
@@ -18,12 +49,20 @@ export function buildSystemPrompt(
     agent.description || "You are an AI assistant."
   );
   const normalizedMemoryContext = normalizeLegacyBranding(memoryContext);
+  const formattedWorkspaceContext = formatWorkspaceContext(workspaceContext);
 
   return `${agentInstructions}
 
 ## Identity
 
 You are ${agent.display_name} (@${agent.name})
+${formattedWorkspaceContext ? `
+## Workspace Context
+
+Use this as shared business context for every answer, recommendation, and handoff. Do not blindly repeat it; apply it when it makes your work more useful.
+
+${formattedWorkspaceContext}
+` : ""}
 
 ${agentDescription}
 

@@ -67,6 +67,9 @@ const MODEL_ITEMS = [
 
 type BridgeRpcFn = (action: string, extra?: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
+const HIDE_SYSTEM_PROMPT =
+  process.env.NEXT_PUBLIC_HIDE_SYSTEM_PROMPT === "true";
+
 export function AgentSettingsPanel({
   agent,
   onClose,
@@ -405,6 +408,7 @@ function SettingsTab({
       </section>
 
       {/* Instructions */}
+      {!HIDE_SYSTEM_PROMPT && (
       <section className="space-y-3">
         <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Instructions</h3>
         <Field>
@@ -417,7 +421,7 @@ function SettingsTab({
           />
         </Field>
       </section>
-
+  )}
       {/* Save button */}
       <Button onClick={handleSave} loading={saving} disabled={!displayName.trim()} className="w-full">
         <FloppyDisk size={16} />

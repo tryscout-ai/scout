@@ -22,6 +22,9 @@ importers:
         specifier: ^2.106.1
         version: 2.106.1
     devDependencies:
+      next:
+        specifier: 16.2.4
+        version: 16.2.4(@babel/core@7.29.0)(babel-plugin-macros@3.1.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       turbo:
         specifier: ^2.5.0
         version: 2.9.6

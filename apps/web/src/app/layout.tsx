@@ -11,7 +11,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Scout",
-  description: "Human-AI collaboration platform",
+  description: "Coordination Layer for AI Sales Team",
 };
 
 export default function RootLayout({

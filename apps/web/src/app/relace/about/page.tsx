@@ -5,9 +5,9 @@ import { ArrowUpRight } from "lucide-react";
 
 const navItems = [
   { label: "ABOUT", href: "/relace/about" },
-  { label: "DOCS", href: "/docs" },
-  { label: "BLOG", href: "#" },
-  { label: "CONTACT", href: "#" },
+  //{ label: "DOCS", href: "/docs" },
+  //{ label: "BLOG", href: "#" },
+  { label: "CONTACT", href: "mailto:hello@runscout.app" },
 ];
 
 const demoUrl = "https://cal.com/darshannn/scout-demo";
@@ -48,7 +48,7 @@ export default function RelaceAboutPage() {
   return (
     <main className="h-full overflow-y-auto bg-[#fffef2] text-black">
       <div className="bg-[#212121] px-4 py-2 text-center text-[15px] text-white">
-      Scout is now available for teams. Book a demo and invite your first agent.
+      Scout is now available in private beta for sales teams. Book a demo and invite your first agent.
       </div>
 
       <header className="sticky top-0 z-40 border-b border-black/[0.03] bg-[#fffef2]/92 backdrop-blur">
@@ -71,23 +71,12 @@ export default function RelaceAboutPage() {
       </header>
 
       <section className="relative overflow-hidden pb-16">
-        <svg
-          className="pointer-events-none absolute inset-0 h-full w-full text-[#47639f]/70"
-          viewBox="0 0 1440 1100"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <path d="M-100 110 C120 260, 302 250, 474 20" fill="none" stroke="currentColor" strokeWidth="1.15" />
-          <path d="M1080 18 C1116 198, 1096 324, 936 440" fill="none" stroke="currentColor" strokeWidth="1.15" />
-          <path d="M846 136 C1044 18, 1268 194, 1458 540" fill="none" stroke="currentColor" strokeWidth="1.15" />
-        </svg>
-
         <div className="relative mx-auto max-w-[1024px] px-5 pt-14 md:px-0 md:pt-16">
           <div className="max-w-[520px]">
             <h1 className="arizona-heading max-w-[500px] text-[58px] leading-[0.95] text-black md:text-[66px]">
               Building the slack
               <br />
-              for ai agents
+              for ai sales agents
             </h1>
           </div>
 
@@ -139,7 +128,7 @@ export default function RelaceAboutPage() {
           <div className="flex gap-10 text-xs font-medium">
             <Link href="/relace/about">ABOUT US</Link>
             <Link href="#">BLOG</Link>
-            <Link href="#">CONTACT</Link>
+            <Link href="mailto:hello@runscout.app">CONTACT</Link>
           </div>
           <div className="flex items-center gap-3 text-black">
             <span className="grid size-8 place-items-center text-[18px] leading-none">X</span>

@@ -1,30 +1,21 @@
 import Image from "next/image";
 import Link from "next/link";
-import {
-  BrainCircuit,
-  Plug,
-  Search,
-  Shield,
-  Split,
-  Zap,
-} from "lucide-react";
 import { ScrollFeatures } from "./scroll-features";
 import { HeroCtas } from "./hero-ctas";
 
 const navItems = [
   { label: "ABOUT", href: "/relace/about" },
-  { label: "DOCS", href: "/docs" },
-  { label: "BLOG", href: "#" },
-  { label: "CONTACT", href: "#" },
+  //{ label: "DOCS", href: "/docs" },
+  //{ label: "BLOG", href: "#" },
+  { label: "CONTACT", href: "mailto:hello@runscout.app" },
 ];
-const logos = ["Magic Patterns", "a0.dev", "Lovable", "orchids", "Codebuff"];
 const featureCards = [
-  ["SPECIALIZED AGENTS", BrainCircuit],
-  ["SHARED CONTEXT", Search],
-  ["SMART HANDOFFS", Split],
-  ["LOW LATENCY", Zap],
-  ["SIMPLE INTEGRATION", Plug],
-  ["BUILT FOR RELIABILITY", Shield],
+  ["Specialized agents", "Research, enrichment, outreach, and ops agents each stay focused on their lane."],
+  ["Shared context", "Every agent starts from the same workspace brief, channel history, and team decisions."],
+  ["Smart handoffs", "Agents can pass work to one another without forcing your team to restate the task."],
+  ["Human checkpoints", "Reviews and approvals happen in the channel before anything important ships."],
+  ["Workspace memory", "Company context, ICP notes, and workflow preferences carry across conversations."],
+  ["Channel-native work", "Tasks, replies, and deliverables stay visible in the same place your team coordinates."],
 ];
 const faqs = [
   {
@@ -69,6 +60,12 @@ const testimonials = [
     image: "/landing/testimonial-cam-martin.png",
   },
 ];
+const operatingLoop = [
+  ["01", "Start in a channel", "Drop the task where your team already has context."],
+  ["02", "Agents coordinate", "Specialists pull the brief, history, and prior decisions."],
+  ["03", "Humans approve", "Review the work in the open before anything moves forward."],
+  ["04", "Context compounds", "Every handoff makes the next agent sharper."],
+];
 
 function Logo() {
   return (
@@ -107,8 +104,6 @@ function Landscape({
         <>
           <div className="absolute inset-0 opacity-[0.28] mix-blend-multiply [background-image:radial-gradient(circle_at_1px_1px,rgba(0,0,0,0.34)_1px,transparent_0)] [background-size:4px_4px]" />
           <div className="absolute inset-0 opacity-50 [background-image:linear-gradient(110deg,transparent_0_28%,rgba(33,33,33,0.55)_28.1%,transparent_28.3%_61%,rgba(33,33,33,0.42)_61.1%,transparent_61.3%)]" />
-          <span className="absolute left-5 top-5 size-3 rounded-full bg-[#fffef2]" />
-          <span className="absolute bottom-4 left-1 size-3 rounded-full bg-[#fffef2]" />
         </>
       ) : null}
       {children}
@@ -268,23 +263,29 @@ function AgentCoordinationMockup() {
   );
 }
 
-function Ruler() {
+function OperatingLoop() {
   return (
-    <div className="mx-auto max-w-[1064px] pb-20 pt-9">
-      <div className="mb-2 flex justify-between font-mono text-[10px] uppercase tracking-[0.2em] text-black/20">
-        <span>FIG 001</span>
-        <span>FIG 003</span>
+    <section className="mx-auto max-w-[1064px] pb-20 pt-9 max-md:px-5">
+      <div className="grid gap-6 border-y border-black/10 py-8 md:grid-cols-[240px_1fr] md:items-start">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-black/35">
+            Scout operating loop
+          </p>
+          <h2 className="arizona-heading mt-4 text-[34px] leading-[1.04]">
+            Not a prompt. A shared workspace.
+          </h2>
+        </div>
+        <div className="grid gap-3 md:grid-cols-4">
+          {operatingLoop.map(([step, label, body]) => (
+            <article key={step} className="min-h-[168px] bg-[#f2f0e5] p-4">
+              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-black/34">{step}</p>
+              <h3 className="mt-8 text-[18px] font-medium leading-tight tracking-[-0.03em]">{label}</h3>
+              <p className="mt-3 text-sm leading-5 text-black/50">{body}</p>
+            </article>
+          ))}
+        </div>
       </div>
-      <div className="flex h-8 items-start border-b border-black/10">
-        {Array.from({ length: 112 }).map((_, index) => (
-          <span
-            key={index}
-            className={`block w-px bg-black/12 ${index % 10 === 0 ? "h-8 bg-[#212121]" : "h-5"}`}
-            style={{ marginRight: 8 }}
-          />
-        ))}
-      </div>
-    </div>
+    </section>
   );
 }
 
@@ -343,7 +344,7 @@ export default function RelaceInspiredLandingPage() {
   return (
     <main className="h-full overflow-y-auto bg-[#fffef2] text-black">
       <div className="bg-[#212121] px-4 py-2 text-center text-[15px] text-white">
-        Scout is now available for teams. Book a demo and invite your first agent.
+        Scout is now available in private beta for sales teams. Book a demo and invite your first agent.
       </div>
 
       <header className="sticky top-0 z-40 border-b border-black/[0.03] bg-[#fffef2]/92 backdrop-blur">
@@ -368,11 +369,11 @@ export default function RelaceInspiredLandingPage() {
       <section className="mx-auto max-w-[1024px] pb-10 pt-16 max-md:px-5 md:pt-28">
         <div className="grid gap-12 md:grid-cols-2 md:gap-6">
           <h1 className="arizona-heading max-w-[500px] text-[58px] leading-[1.03] md:text-[64px]">
-            Coordination layer for AI Agents
+            Slack for <br />AI Sales Agents
           </h1>
           <div className="pt-2 md:pl-2">
             <p className="max-w-[470px] text-xl leading-[1.38] text-black/54">
-            The collaborative workspace for AI-native sales team.
+            The collaborative workspace for AI-native sales teams.
             Run specialized agents in shared channels with humans always in the loop.
             </p>
             <HeroCtas className="mt-7" demoUrl={demoUrl} source="hero" />
@@ -384,9 +385,9 @@ export default function RelaceInspiredLandingPage() {
       </section>
 
       
-      <Ruler />
-
       <ScrollFeatures />
+
+      <OperatingLoop />
 
       <section className="mx-auto max-w-[1024px] border-b border-black/10 py-24 max-md:px-5">
         <div>
@@ -417,20 +418,29 @@ export default function RelaceInspiredLandingPage() {
         <p className="mt-8 max-w-[560px] text-lg leading-8 text-black/48">
         Specialized agents, shared deal context, smart handoffs, and human approvals — for sales teams running agents on real pipeline.</p>
         <div className="mt-14 grid gap-5 md:grid-cols-3">
-          {featureCards.map(([label, Icon], index) => (
-            <div key={label as string}>
-              <div className="h-[150px] bg-[#f2f0e5] p-5">
-                <Icon className="size-6 text-black/34" />
-                <p className="mt-16 font-mono text-[14px] uppercase tracking-[0.24em] text-black/72">{label as string}</p>
+          {featureCards.map(([label, body], index) => (
+            <div key={label}>
+              <div className="grid min-h-[188px] grid-rows-[auto_1fr_auto] border border-black/8 bg-[#f2f0e5] p-5">
+                <div className="flex items-center justify-between border-b border-black/10 pb-4">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-black/38">
+                    Block {String(index + 1).padStart(2, "0")}
+                  </p>
+                  <span className="h-px w-10 bg-black/20" />
+                </div>
+                <p className="mt-8 text-[22px] leading-tight tracking-[-0.04em] text-black">
+                  {label}
+                </p>
+                <p className="mt-6 max-w-[330px] text-sm leading-5 text-black/52">
+                  {body}
+                </p>
               </div>
-              <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.2em]">NO. {index + 1}</p>
             </div>
           ))}
         </div>
       </section>
 
       <section className="mx-auto max-w-[1024px] py-16 max-md:px-5">
-        <h2 className="arizona-heading text-[44px] leading-none">Trusted by trailblazers</h2>
+        <h2 className="arizona-heading text-[44px] leading-none">Trusted by early partners</h2>
         <div className="mt-10 grid gap-5 md:grid-cols-2">
           {testimonials.map((testimonial) => (
             <div key={testimonial.name} className="bg-[#f2f0e5] p-8">
@@ -503,7 +513,7 @@ export default function RelaceInspiredLandingPage() {
           <div className="flex gap-10 text-xs font-medium">
             <Link href="/relace/about">ABOUT US</Link>
             <Link href="#">BLOG</Link>
-            <Link href="#">CONTACT</Link>
+            <Link href="mailto:hello@runscout.app">CONTACT</Link>
           </div>
           <div className="flex items-center gap-3 text-black">
             <span className="grid size-8 place-items-center text-[18px] leading-none">X</span>

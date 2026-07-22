@@ -18,6 +18,17 @@ type Agent = {
   model: string;
 };
 
+type WorkspaceContext = { organization_summary: string | null;
+  company_name: string | null;
+  company_website: string | null;
+  company_description: string | null;
+  icp: string | null;
+  niche: string | null;
+  agent_goals: string | null;
+  current_workflow: string | null;
+  context_notes: string | null;
+};
+
 type LlmProvider = {
   name: string;
   apiKey: string;
@@ -69,6 +80,50 @@ function responseShape(data: unknown) {
     stepCount: response.steps?.length,
     messageKeys: message ? Object.keys(message) : undefined,
   });
+}
+
+// function formatWorkspaceContext(context: WorkspaceContext | null) {
+//   const summary = context?.organization_summary?.trim();
+//   return summary ? `Organization summary (use this to tailor every response):\n${summary}` : "";
+// }
+
+function formatWorkspaceContext(context: WorkspaceContext | null) {
+    if (!context) return "";
+
+    const summary = context.organization_summary?.trim();
+    if (summary) {
+        return `Organization summary (use this to tailor every response):\n${summary}`;
+    }
+
+    const parts: string[] = [];
+
+    if (context.company_name)
+        parts.push(`- Company: ${context.company_name}`);
+
+    if (context.company_website)
+        parts.push(`- Website: ${context.company_website}`);
+
+    if (context.company_description)
+        parts.push(`- What the company does: ${context.company_description}`);
+
+    if (context.icp)
+        parts.push(`- Ideal customer profile: ${context.icp}`);
+
+    if (context.niche)
+        parts.push(`- Market: ${context.niche}`);
+
+    if (context.agent_goals)
+        parts.push(`- Agent goals: ${context.agent_goals}`);
+
+    if (context.current_workflow)
+        parts.push(`- Current workflow: ${context.current_workflow}`);
+
+    if (context.context_notes)
+        parts.push(`- Additional constraints: ${context.context_notes}`);
+
+    return parts.length
+        ? `Workspace context (use this to tailor every response):\n${parts.join("\n")}`
+        : "";
 }
 
 function isMentioned(content: string, agent: Agent) {
@@ -195,11 +250,22 @@ async function generateNvidiaReply(system: string, prompt: string, history: stri
   return reply;
 }
 
-async function generateReply(agent: Agent, prompt: string, history: string) {
+async function generateReply(
+  agent: Agent,
+  prompt: string,
+  history: string,
+  workspaceContext: WorkspaceContext | null,
+) {
+  console.log("workspaceContext =", JSON.stringify(workspaceContext, null, 2));
+
+  const formattedContext = formatWorkspaceContext(workspaceContext);
+  console.log("Formatted Context = ", formattedContext)
   const system = [
     agent.system_prompt || `You are ${agent.display_name}, a helpful Scout agent.`,
+    formatWorkspaceContext(workspaceContext),
     "Reply directly to the user. If another agent should take the next step, mention that agent exactly once.",
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
+  console.log(system);
   let lastError = "";
   let shouldTryNextProvider = false;
   for (const provider of providersFor(agent)) {
@@ -294,7 +360,7 @@ export async function dispatchMessage(message: Message): Promise<void> {
 
   const supabase = createAdminClient();
   const [{ data: channel }, { data: memberships }] = await Promise.all([
-    supabase.from("channels").select("type, name").eq("id", message.channel_id).single(),
+    supabase.from("channels").select("type, name, server_id").eq("id", message.channel_id).single(),
     supabase
       .from("channel_members")
       .select("member_id")
@@ -304,10 +370,27 @@ export async function dispatchMessage(message: Message): Promise<void> {
   if (!channel || !memberships?.length) return;
 
   const agentIds = memberships.map((membership) => membership.member_id);
-  const { data: agents } = await supabase
-    .from("agents")
-    .select("id, name, display_name, description, system_prompt, model")
-    .in("id", agentIds);
+  const [{ data: agents }, { data: workspaceContext }] = await Promise.all([
+    supabase
+      .from("agents")
+      .select("id, name, display_name, description, system_prompt, model")
+      .in("id", agentIds),
+    supabase
+      .from("servers")
+.select(`
+  organization_summary,
+  company_name,
+  company_website,
+  company_description,
+  icp,
+  niche,
+  agent_goals,
+  current_workflow,
+  context_notes
+`)
+      .eq("id", channel.server_id)
+      .single(),
+  ]);
   if (!agents?.length) return;
 
   const channelAgents = agents as Agent[];
@@ -350,6 +433,7 @@ export async function dispatchMessage(message: Message): Promise<void> {
       agent,
       `[target=${channel.type === "dm" ? `dm:@${senderName}` : `#${channel.name}`} sender=@${senderName}] ${message.content}`,
       history,
+      (workspaceContext as WorkspaceContext | null) || null,
     );
     if (!reply) return;
     const { data: inserted, error } = await supabase.from("messages").insert({

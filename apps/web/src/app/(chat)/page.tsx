@@ -29,7 +29,7 @@ export default function ChatRedirect() {
       if (memberships && memberships.length > 0) {
         const { data: server } = await supabase
           .from("servers")
-          .select("slug, onboarding_completed_at")
+          .select("id, slug, onboarding_completed_at, organization_summary")
           .eq("id", memberships[0].server_id)
           .single();
 
@@ -37,6 +37,14 @@ export default function ChatRedirect() {
           if (!server.onboarding_completed_at) {
             router.replace("/onboarding");
             return;
+          }
+
+          if (!server.organization_summary) {
+            try {
+              await fetch(`/api/servers/${server.id}/organization-summary`, { method: "POST" });
+            } catch {
+              // Summary generation is best effort; chat must remain available.
+            }
           }
 
           router.replace(`/s/${server.slug}`);

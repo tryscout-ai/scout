@@ -5,13 +5,14 @@ import {
   isWorkspaceContextComplete,
   normalizeWorkspaceContext,
 } from "@/lib/workspace-context";
+import { generateOrganizationSummary } from "@/lib/organization-summary";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
 const CONTEXT_COLUMNS =
-  "id, owner_id, company_name, company_website, company_description, icp, niche, agent_goals, current_workflow, context_notes, onboarding_completed_at";
+  "id, owner_id, company_name, company_website, company_description, icp, niche, agent_goals, current_workflow, context_notes, organization_summary, organization_summary_updated_at, organization_summary_error, onboarding_completed_at";
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
@@ -77,6 +78,9 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     .from("servers")
     .update({
       ...normalized,
+      organization_summary: null,
+      organization_summary_updated_at: null,
+      organization_summary_error: null,
       onboarding_completed_at: isWorkspaceContextComplete(normalized)
         ? new Date().toISOString()
         : null,
@@ -89,5 +93,28 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ context: updated });
+  try {
+    const organizationSummary = await generateOrganizationSummary(updated);
+    const { data: summarized, error: summaryUpdateError } = await supabase
+      .from("servers")
+      .update({
+        organization_summary: organizationSummary,
+        organization_summary_updated_at: new Date().toISOString(),
+        organization_summary_error: null,
+      })
+      .eq("id", id)
+      .select(CONTEXT_COLUMNS)
+      .single();
+
+    if (summaryUpdateError) throw summaryUpdateError;
+    return NextResponse.json({ context: summarized, summaryStatus: "ready" });
+  } catch (summaryError) {
+    const message = summaryError instanceof Error ? summaryError.message : String(summaryError);
+    console.warn(`Organization summary generation failed for ${id}: ${message}`);
+    await supabase
+      .from("servers")
+      .update({ organization_summary_error: message.slice(0, 500) })
+      .eq("id", id);
+    return NextResponse.json({ context: updated, summaryStatus: "pending" });
+  }
 }

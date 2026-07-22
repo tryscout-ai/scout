@@ -8,6 +8,8 @@ interface AgentRecord {
 }
 
 export interface WorkspaceContext {
+  organization_summary: string | null;
+
   company_name: string | null;
   company_website: string | null;
   company_description: string | null;
@@ -18,23 +20,45 @@ export interface WorkspaceContext {
   context_notes: string | null;
 }
 
+// export function formatWorkspaceContext(context: WorkspaceContext | null): string {
+//   return context?.organization_summary?.trim() ?? "";
+// }
+
 export function formatWorkspaceContext(context: WorkspaceContext | null): string {
   if (!context) return "";
 
-  const lines = [
-    ["Company", context.company_name],
-    ["Website", context.company_website],
-    ["What the company does", context.company_description],
-    ["Ideal customer profile", context.icp],
-    ["Niche or market", context.niche],
-    ["What Scout agents should help with", context.agent_goals],
-    ["Current workflow/tools", context.current_workflow],
-    ["Extra context", context.context_notes],
-  ]
-    .filter(([, value]) => value && value.trim())
-    .map(([label, value]) => `- ${label}: ${normalizeLegacyBranding(value || "")}`);
+  const summary = context.organization_summary?.trim();
+  if (summary) {
+    return summary;
+  }
 
-  return lines.length > 0 ? lines.join("\n") : "";
+  const parts: string[] = [];
+
+  if (context.company_name)
+    parts.push(`Company: ${context.company_name}`);
+
+  if (context.company_website)
+    parts.push(`Website: ${context.company_website}`);
+
+  if (context.company_description)
+    parts.push(`Company description: ${context.company_description}`);
+
+  if (context.icp)
+    parts.push(`Ideal customer profile: ${context.icp}`);
+
+  if (context.niche)
+    parts.push(`Market: ${context.niche}`);
+
+  if (context.agent_goals)
+    parts.push(`Goals: ${context.agent_goals}`);
+
+  if (context.current_workflow)
+    parts.push(`Current workflow: ${context.current_workflow}`);
+
+  if (context.context_notes)
+    parts.push(`Additional context: ${context.context_notes}`);
+
+  return parts.join("\n");
 }
 
 export function buildSystemPrompt(
@@ -57,7 +81,7 @@ export function buildSystemPrompt(
 
 You are ${agent.display_name} (@${agent.name})
 ${formattedWorkspaceContext ? `
-## Workspace Context
+## Organization Summary
 
 Use this as shared business context for every answer, recommendation, and handoff. Do not blindly repeat it; apply it when it makes your work more useful.
 

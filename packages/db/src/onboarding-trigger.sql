@@ -1,4 +1,20 @@
 -- Auto-create Onboarding Agent + Channel when a new profile is created
+-- Keep the context columns in sync for existing Supabase projects before the
+-- trigger reads signup metadata into the first workspace.
+ALTER TABLE public.servers
+  ADD COLUMN IF NOT EXISTS company_name text,
+  ADD COLUMN IF NOT EXISTS company_website text,
+  ADD COLUMN IF NOT EXISTS company_description text,
+  ADD COLUMN IF NOT EXISTS icp text,
+  ADD COLUMN IF NOT EXISTS niche text,
+  ADD COLUMN IF NOT EXISTS agent_goals text,
+  ADD COLUMN IF NOT EXISTS current_workflow text,
+  ADD COLUMN IF NOT EXISTS context_notes text,
+  ADD COLUMN IF NOT EXISTS organization_summary text,
+  ADD COLUMN IF NOT EXISTS organization_summary_updated_at timestamptz,
+  ADD COLUMN IF NOT EXISTS organization_summary_error text,
+  ADD COLUMN IF NOT EXISTS onboarding_completed_at timestamptz;
+
 CREATE OR REPLACE FUNCTION public.handle_new_profile()
 RETURNS trigger AS $func$
 DECLARE
@@ -17,10 +33,10 @@ DECLARE
   current_workflow text;
   context_notes text;
 BEGIN
-  server_id := public.uuid_generate_v4();
-  agent_id := public.uuid_generate_v4();
-  onboarding_channel_id := public.uuid_generate_v4();
-  dm_channel_id := public.uuid_generate_v4();
+  server_id := gen_random_uuid();
+  agent_id := gen_random_uuid();
+  onboarding_channel_id := gen_random_uuid();
+  dm_channel_id := gen_random_uuid();
   SELECT raw_user_meta_data INTO signup_metadata
   FROM auth.users
   WHERE id = new.id;

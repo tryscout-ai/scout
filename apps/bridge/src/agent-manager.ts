@@ -7,7 +7,6 @@ import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { normalizeLegacyBranding } from "./branding.js";
 import {
   buildSystemPrompt,
-  formatWorkspaceContext,
   type WorkspaceContext,
 } from "./system-prompt.js";
 import { spawnSync } from "child_process";
@@ -355,17 +354,30 @@ export class AgentManager {
     return data?.session_id || null;
   }
 
-  private async loadWorkspaceContext(serverId: string): Promise<WorkspaceContext | null> {
-    const { data } = await this.supabase
-      .from("servers")
-      .select(
-        "company_name, company_website, company_description, icp, niche, agent_goals, current_workflow, context_notes",
-      )
-      .eq("id", serverId)
-      .single();
+ private async loadWorkspaceContext(serverId: string): Promise<WorkspaceContext | null> {
 
-    return (data as WorkspaceContext | null) ?? null;
-  }
+  console.log("serverId =", serverId);
+
+  const { data, error } = await this.supabase
+    .from("servers")
+    .select(`
+      organization_summary,
+      company_name,
+      company_website,
+      company_description,
+      icp,
+      niche,
+      agent_goals,
+      current_workflow,
+      context_notes
+    `)
+    .eq("id", serverId)
+    .single();
+      console.log("Workspace context:", data);
+      console.log("Supabase error =", error);
+  console.log("Server row =", data);
+  return (data as WorkspaceContext | null) ?? null;
+}
 
   async initAgent(agentId: string, agent: AgentRecord) {
     const workDir = join(this.agentsDir, agentId);
@@ -375,9 +387,6 @@ export class AgentManager {
       mkdirSync(workDir, { recursive: true });
       mkdirSync(join(workDir, "notes"), { recursive: true });
 
-      const workspaceContext = await this.loadWorkspaceContext(agent.server_id);
-      const formattedWorkspaceContext = formatWorkspaceContext(workspaceContext);
-
       // Write initial MEMORY.md
       const memoryContent = `# ${agent.display_name}
 
@@ -385,11 +394,7 @@ export class AgentManager {
 ${normalizeLegacyBranding(agent.description || agent.display_name)}
 
 ## Key Knowledge
-${formattedWorkspaceContext ? `- Read the Workspace Context section below before making recommendations.
-
-## Workspace Context
-${formattedWorkspaceContext}
-` : "- No notes saved yet. Knowledge will accumulate through conversations."}
+- Organization context is supplied separately in the system prompt.
 
 ## Active Context
 - Status: First startup — no prior conversations.
@@ -422,7 +427,9 @@ ${formattedWorkspaceContext}
     if (!existsSync(memoryPath)) return "";
 
     const original = readFileSync(memoryPath, "utf-8");
-    const normalized = normalizeLegacyBranding(original);
+    const normalized = normalizeLegacyBranding(original)
+      .replace(/\n## Workspace Context\n[\s\S]*?(?=\n## Active Context|\s*$)/, "")
+      .replace(/\n{3,}/g, "\n\n");
     if (normalized !== original) {
       writeFileSync(memoryPath, normalized);
     }
@@ -447,6 +454,8 @@ ${formattedWorkspaceContext}
       .eq("id", agentId)
       .single();
 
+      console.log("Agent:", agent);
+console.log("agent.server_id =", agent?.server_id);
     // Get MEMORY.md content
     const memoryPath = join(session.workDir, "MEMORY.md");
     const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
@@ -570,7 +579,8 @@ ${formattedWorkspaceContext}
       .select("*")
       .eq("id", agentId)
       .single();
-
+    console.log("Agent:", agent);
+console.log("agent.server_id =", agent?.server_id);
     const memoryPath = join(session.workDir, "MEMORY.md");
     const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
 
@@ -824,6 +834,8 @@ ${formattedWorkspaceContext}
         .eq("id", agentId)
         .single();
 
+        console.log("Agent:", agent);
+console.log("agent.server_id =", agent?.server_id);
       const workspaceContext = agent?.server_id
         ? await this.loadWorkspaceContext(agent.server_id)
         : null;
@@ -1231,11 +1243,12 @@ ${userMessage}`;
         .eq("id", agentId)
         .single();
 
-    const systemPrompt =
-      buildSystemPrompt(
-        agent,
-        memoryContext
-      );
+        console.log("Agent:", agent);
+console.log("agent.server_id =", agent?.server_id);
+    const workspaceContext = agent?.server_id
+      ? await this.loadWorkspaceContext(agent.server_id)
+      : null;
+    const systemPrompt = buildSystemPrompt(agent, memoryContext, workspaceContext);
 
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let timedOut = false;

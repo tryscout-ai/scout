@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS public.servers (
   agent_goals text,
   current_workflow text,
   context_notes text,
+  organization_summary text,
+  organization_summary_updated_at timestamptz,
+  organization_summary_error text,
   onboarding_completed_at timestamptz,
   owner_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now()
@@ -34,6 +37,9 @@ ALTER TABLE public.servers
   ADD COLUMN IF NOT EXISTS agent_goals text,
   ADD COLUMN IF NOT EXISTS current_workflow text,
   ADD COLUMN IF NOT EXISTS context_notes text,
+  ADD COLUMN IF NOT EXISTS organization_summary text,
+  ADD COLUMN IF NOT EXISTS organization_summary_updated_at timestamptz,
+  ADD COLUMN IF NOT EXISTS organization_summary_error text,
   ADD COLUMN IF NOT EXISTS onboarding_completed_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS public.server_members (

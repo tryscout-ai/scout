@@ -32,11 +32,11 @@ function ButtonLink({
   return (
     <Link
       href={href}
-      className={
-        tone === "primary"
-          ? "inline-flex h-11 items-center gap-2 bg-[#212121] px-5 text-[11px] font-medium uppercase tracking-[0.08em] text-white transition hover:bg-[#2d2d2d]"
-          : "inline-flex h-11 items-center gap-2 bg-[#f2f0e5] px-5 text-[11px] font-medium uppercase tracking-[0.08em] text-black shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] transition hover:bg-[#e8e5d8]"
-      }
+        className={
+          tone === "primary"
+            ? "inline-flex h-11 items-center gap-2 bg-[#212121] px-5 text-[11px] font-medium uppercase tracking-[0.08em] text-white transition hover:bg-[#2d2d2d]"
+          : "inline-flex h-11 items-center gap-2 bg-white px-5 text-[11px] font-medium uppercase tracking-[0.08em] text-black shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)] transition hover:bg-[#f4f4ef]"
+        }
     >
       {children}
       <ArrowUpRight className="size-3.5" />
@@ -46,12 +46,12 @@ function ButtonLink({
 
 export default function RelaceAboutPage() {
   return (
-    <main className="h-full overflow-y-auto bg-[#fffef2] text-black">
+    <main className="h-full overflow-y-auto bg-[#fbfbf7] text-black">
       <div className="bg-[#212121] px-4 py-2 text-center text-[15px] text-white">
       Scout is now available in private beta for sales teams. Book a demo and invite your first agent.
       </div>
 
-      <header className="sticky top-0 z-40 border-b border-black/[0.03] bg-[#fffef2]/92 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-black/[0.05] bg-[#fbfbf7]/92 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-[1024px] items-center justify-between max-md:px-5">
           <Logo />
           <nav className="hidden items-center gap-8 text-xs font-medium md:flex">

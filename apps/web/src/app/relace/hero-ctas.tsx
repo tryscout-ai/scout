@@ -120,13 +120,13 @@ export function HeroCtas({
       </a>
 
       <Dialog>
-        <DialogTrigger className="inline-flex h-12 items-center gap-3 bg-[#f2f0e5] px-6 text-base font-medium text-black shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] transition hover:bg-[#e8e5d8]">
+        <DialogTrigger className="inline-flex h-12 items-center gap-3 bg-white px-6 text-base font-medium text-black shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)] transition hover:bg-[#f4f4ef]">
           Join waitlist
           <ArrowUpRight className="size-4" />
         </DialogTrigger>
         <DialogPopup
           bottomStickOnMobile={false}
-          className="max-h-[92vh] max-w-[980px] overflow-hidden rounded-none border-0 bg-[#fffef2] p-0 text-black shadow-2xl md:grid md:grid-cols-[1.05fr_0.95fr]"
+          className="max-h-[92vh] max-w-[980px] overflow-hidden rounded-none border-0 bg-[#fbfbf7] p-0 text-black shadow-2xl md:grid md:grid-cols-[1.05fr_0.95fr]"
           showCloseButton={false}
         >
           <div className="relative max-h-[92vh] overflow-y-auto px-6 py-8 sm:px-10 md:px-12 md:py-10">
@@ -180,14 +180,14 @@ export function HeroCtas({
                   />
                   <div className="grid gap-4 sm:grid-cols-2">
                     <input
-                      className="h-14 bg-[#f2f0e5] px-5 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
+                      className="h-14 border border-black/10 bg-white px-5 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
                       name="fullName"
                       placeholder="Full name*"
                       value={form.fullName}
                       onChange={(event) => updateField("fullName", event.target.value)}
                     />
                     <input
-                      className="h-14 bg-[#f2f0e5] px-5 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
+                      className="h-14 border border-black/10 bg-white px-5 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
                       name="role"
                       placeholder="Role*"
                       value={form.role}
@@ -195,7 +195,7 @@ export function HeroCtas({
                     />
                   </div>
                   <input
-                    className="h-14 w-full bg-[#f2f0e5] px-5 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
+                    className="h-14 w-full border border-black/10 bg-white px-5 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
                     name="workEmail"
                     placeholder="Email*"
                     type="email"
@@ -203,14 +203,14 @@ export function HeroCtas({
                     onChange={(event) => updateField("workEmail", event.target.value)}
                   />
                   <input
-                    className="h-14 w-full bg-[#f2f0e5] px-5 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
+                    className="h-14 w-full border border-black/10 bg-white px-5 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
                     name="company"
                     placeholder="Company*"
                     value={form.company}
                     onChange={(event) => updateField("company", event.target.value)}
                   />
                   <textarea
-                    className="min-h-28 w-full resize-none bg-[#f2f0e5] px-5 py-4 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
+                    className="min-h-28 w-full resize-none border border-black/10 bg-white px-5 py-4 text-base outline-none placeholder:text-black/40 focus:ring-1 focus:ring-[#212121]"
                     name="note"
                     placeholder="What would you like agents to help with? (optional)"
                     value={form.note}
@@ -244,7 +244,7 @@ export function HeroCtas({
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/15 to-transparent" />
             <DialogClose
               aria-label="Close waitlist form"
-              className="absolute right-5 top-5 inline-flex size-12 items-center justify-center bg-[#fffef2]/18 text-white backdrop-blur-sm transition hover:bg-[#fffef2]/28"
+              className="absolute right-5 top-5 inline-flex size-12 items-center justify-center bg-white/18 text-white backdrop-blur-sm transition hover:bg-white/28"
             >
               <X className="size-7" />
             </DialogClose>

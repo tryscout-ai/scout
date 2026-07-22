@@ -109,9 +109,9 @@ export function ScrollFeatures() {
           </h2>
           <div className="mt-16 flex gap-10">
             <div className="relative h-[360px] w-4 shrink-0">
-              <div className="absolute left-1/2 top-0 h-full -translate-x-1/2 border-l-[3px] border-dotted border-[#b7b4a9]" />
-              <span className="absolute left-1/2 top-0 size-4 -translate-x-1/2 rounded-full bg-[#b7b4a9]" />
-              <span className="absolute bottom-0 left-1/2 size-4 -translate-x-1/2 rounded-full bg-[#b7b4a9]" />
+              <div className="absolute left-1/2 top-0 h-full -translate-x-1/2 border-l-[3px] border-dotted border-black/18" />
+              <span className="absolute left-1/2 top-0 size-4 -translate-x-1/2 rounded-full border border-black/14 bg-[#fbfbf7]" />
+              <span className="absolute bottom-0 left-1/2 size-4 -translate-x-1/2 rounded-full border border-black/14 bg-[#fbfbf7]" />
               <span
                 className="absolute left-1/2 h-[34%] w-[3px] -translate-x-1/2 bg-[#212121] transition-[top] duration-300"
                 style={{ top: activeTop }}

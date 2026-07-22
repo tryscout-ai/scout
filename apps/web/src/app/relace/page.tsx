@@ -61,10 +61,10 @@ const testimonials = [
   },
 ];
 const operatingLoop = [
-  ["01", "Start in a channel", "Drop the task where your team already has context."],
-  ["02", "Agents coordinate", "Specialists pull the brief, history, and prior decisions."],
-  ["03", "Humans approve", "Review the work in the open before anything moves forward."],
-  ["04", "Context compounds", "Every handoff makes the next agent sharper."],
+  ["01", "Start in a channel", "Drop the task where your team already has context.", "channel"],
+  ["02", "Agents coordinate", "Specialists pull the brief, history, and prior decisions.", "handoff"],
+  ["03", "Humans approve", "Review the work in the open before anything moves forward.", "approval"],
+  ["04", "Context compounds", "Every handoff makes the next agent sharper.", "memory"],
 ];
 
 function Logo() {
@@ -263,27 +263,110 @@ function AgentCoordinationMockup() {
   );
 }
 
+function OperatingLoopVisual({ type }: { type: string }) {
+  const shellClass = "relative h-[190px] overflow-hidden border-b border-black/10 bg-[#fbfbf7]";
+  const panelClass = "absolute border border-black/12 bg-white shadow-[0_10px_24px_rgba(20,20,18,0.045)]";
+
+  if (type === "channel") {
+    return (
+      <div className={shellClass}>
+        <div className="absolute inset-x-7 bottom-8 h-px bg-black/[0.055]" />
+        <div className={`${panelClass} left-7 right-7 top-10`}>
+          <div className="flex h-9 items-center border-b border-black/10 px-4">
+            <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-black/38"># outbound-team</span>
+            <span className="ml-auto h-px w-10 bg-black/18" />
+          </div>
+          <div className="space-y-3 p-4">
+            <div className="h-2.5 w-11/12 bg-black/[0.09]" />
+            <div className="h-2.5 w-3/5 bg-black/[0.065]" />
+            <div className="mt-4 border border-black/10 bg-[#fbfbf7] px-3 py-2">
+              <div className="h-2 w-2/3 bg-black/[0.09]" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (type === "handoff") {
+    return (
+      <div className={shellClass}>
+        <div className="absolute left-8 right-8 top-[90px] h-px bg-black/12" />
+        <div className="absolute left-1/2 top-10 h-[102px] w-px -translate-x-1/2 bg-black/12" />
+        {[
+          ["Research", "left-7 top-10"],
+          ["Outreach", "right-7 top-10"],
+          ["Context", "left-1/2 top-[108px] -translate-x-1/2"],
+        ].map(([label, position]) => (
+          <div key={label} className={`absolute ${position} grid h-12 w-[86px] place-items-center border border-black/12 bg-white shadow-[0_8px_18px_rgba(20,20,18,0.04)]`}>
+            <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-black/45">{label}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (type === "approval") {
+    return (
+      <div className={shellClass}>
+        <div className={`${panelClass} left-7 right-7 top-8 p-4`}>
+          <div className="flex items-center justify-between border-b border-black/10 pb-3">
+            <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-black/40">Approval</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-black/32">pending</span>
+          </div>
+          <div className="mt-4 space-y-2.5">
+            <div className="h-2.5 w-full bg-black/[0.09]" />
+            <div className="h-2.5 w-4/5 bg-black/[0.065]" />
+          </div>
+          <div className="mt-6 grid grid-cols-2 gap-2">
+            <span className="h-8 bg-[#212121]" />
+            <span className="h-8 border border-black/12 bg-[#fbfbf7]" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={shellClass}>
+      <div className="absolute left-8 right-8 top-9 flex items-end gap-4">
+        {[48, 72, 98, 122].map((height, index) => (
+          <div key={height} className="flex flex-1 flex-col items-center gap-3">
+            <div className="w-full border border-black/12 bg-white shadow-[0_8px_18px_rgba(20,20,18,0.035)]" style={{ height }} />
+            <span className="font-mono text-[9px] text-black/34">0{index + 1}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OperatingLoop() {
   return (
-    <section className="mx-auto max-w-[1064px] pb-20 pt-9 max-md:px-5">
-      <div className="grid gap-6 border-y border-black/10 py-8 md:grid-cols-[240px_1fr] md:items-start">
-        <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-black/35">
-            Scout operating loop
-          </p>
-          <h2 className="arizona-heading mt-4 text-[34px] leading-[1.04]">
-            Not a prompt. A shared workspace.
-          </h2>
-        </div>
-        <div className="grid gap-3 md:grid-cols-4">
-          {operatingLoop.map(([step, label, body]) => (
-            <article key={step} className="min-h-[168px] bg-[#f2f0e5] p-4">
-              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-black/34">{step}</p>
-              <h3 className="mt-8 text-[18px] font-medium leading-tight tracking-[-0.03em]">{label}</h3>
-              <p className="mt-3 text-sm leading-5 text-black/50">{body}</p>
-            </article>
+    <section className="mx-auto max-w-[1064px] pb-20 pt-16 max-md:px-5">
+      <div className="grid gap-8 md:grid-cols-[1fr_420px] md:items-start">
+        <h2 className="arizona-heading max-w-[560px] text-[46px] leading-[1.02]">
+          Not a prompt. A shared workspace.
+        </h2>
+        <p className="max-w-[420px] text-lg leading-8 text-black/50">
+          Scout turns every sales request into a visible operating loop: ask in a channel,
+          let agents coordinate, review the work, and keep the context for the next handoff.
+        </p>
+      </div>
+      <p className="mt-16 font-mono text-[10px] uppercase tracking-[0.24em] text-black/35">
+        Scout operating loop
+      </p>
+      <div className="mt-6 grid gap-5 md:grid-cols-4">
+        {operatingLoop.map(([step, label, body, visual]) => (
+          <article key={step} className="overflow-hidden border border-black/12 bg-white shadow-[0_14px_34px_rgba(20,20,18,0.035)]">
+            <OperatingLoopVisual type={visual} />
+            <div className="p-5">
+              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-black/42">{step}</p>
+              <h3 className="mt-10 text-[22px] font-medium leading-tight tracking-[-0.04em] text-black">{label}</h3>
+              <p className="mt-4 text-sm leading-5 text-black/52">{body}</p>
+            </div>
+          </article>
           ))}
-        </div>
       </div>
     </section>
   );
@@ -319,7 +402,7 @@ function QueuePanel() {
       alt="Snow-covered mountain landscape."
       decorative={false}
     >
-      <div className="absolute left-1/2 top-[36%] w-[80%] -translate-x-1/2 bg-[#fffef2]/78 p-8 backdrop-blur-[1px]">
+      <div className="absolute left-1/2 top-[36%] w-[80%] -translate-x-1/2 bg-[#fbfbf7]/82 p-8 backdrop-blur-[1px]">
         <div className="grid grid-cols-4 border-b border-black pb-3 text-base">
           <span>Requested</span>
           <span>Picked up</span>
@@ -342,12 +425,12 @@ export default function RelaceInspiredLandingPage() {
     process.env.NEXT_PUBLIC_CAL_DEMO_URL || "https://cal.com/darshannn/scout-demo";
 
   return (
-    <main className="h-full overflow-y-auto bg-[#fffef2] text-black">
+    <main className="h-full overflow-y-auto bg-[#fbfbf7] text-black">
       <div className="bg-[#212121] px-4 py-2 text-center text-[15px] text-white">
         Scout is now available in private beta for sales teams. Book a demo and invite your first agent.
       </div>
 
-      <header className="sticky top-0 z-40 border-b border-black/[0.03] bg-[#fffef2]/92 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-black/[0.05] bg-[#fbfbf7]/92 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-[1024px] items-center justify-between max-md:px-5">
           <Logo />
           <nav className="hidden items-center gap-8 text-xs font-medium md:flex">
@@ -420,12 +503,12 @@ export default function RelaceInspiredLandingPage() {
         <div className="mt-14 grid gap-5 md:grid-cols-3">
           {featureCards.map(([label, body], index) => (
             <div key={label}>
-              <div className="grid min-h-[188px] grid-rows-[auto_1fr_auto] border border-black/8 bg-[#f2f0e5] p-5">
-                <div className="flex items-center justify-between border-b border-black/10 pb-4">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-black/38">
+              <div className="grid min-h-[188px] grid-rows-[auto_1fr_auto] border border-black/12 bg-white p-5 shadow-[0_12px_30px_rgba(20,20,18,0.026)]">
+                <div className="flex items-center justify-between border-b border-black/12 pb-4">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-black/42">
                     Block {String(index + 1).padStart(2, "0")}
                   </p>
-                  <span className="h-px w-10 bg-black/20" />
+                  <span className="h-px w-10 bg-black/24" />
                 </div>
                 <p className="mt-8 text-[22px] leading-tight tracking-[-0.04em] text-black">
                   {label}
@@ -439,33 +522,6 @@ export default function RelaceInspiredLandingPage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-[1024px] py-16 max-md:px-5">
-        <h2 className="arizona-heading text-[44px] leading-none">Trusted by early partners</h2>
-        <div className="mt-10 grid gap-5 md:grid-cols-2">
-          {testimonials.map((testimonial) => (
-            <div key={testimonial.name} className="bg-[#f2f0e5] p-8">
-              <p className="mb-10 max-w-md text-xl leading-8 text-black/70">
-                {testimonial.quote}
-              </p>
-              <div className="flex items-center gap-4">
-                <Image
-                  src={testimonial.image}
-                  alt={testimonial.name}
-                  width={48}
-                  height={48}
-                  className="size-12 rounded-full object-cover"
-                />
-                <div>
-                  <p>{testimonial.name}</p>
-                  <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-black/55">
-                    {testimonial.role}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
 
       <section className="mx-auto grid max-w-[1024px] gap-12 border-t border-black/10 py-24 max-md:px-5 md:grid-cols-[240px_1fr]">
         <div>

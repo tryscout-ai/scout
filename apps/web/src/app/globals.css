@@ -12,7 +12,7 @@
 
   /* ── Semantic tokens mapped to Radix sand scale ── */
   /* Backgrounds */
-  --background: #f6f4f0;
+  --background: #FFFFFF;
   --card: var(--color-sand-2);
   --popover: var(--color-sand-2);
   --code: var(--color-sand-2);

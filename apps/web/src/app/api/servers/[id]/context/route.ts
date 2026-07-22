@@ -5,7 +5,7 @@ import {
   isWorkspaceContextComplete,
   normalizeWorkspaceContext,
 } from "@/lib/workspace-context";
-import { generateOrganizationSummary } from "@/lib/organization-summary";
+import { ensureOrganizationSummary } from "@/lib/organization-summary";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -93,28 +93,13 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  try {
-    const organizationSummary = await generateOrganizationSummary(updated);
-    const { data: summarized, error: summaryUpdateError } = await supabase
-      .from("servers")
-      .update({
-        organization_summary: organizationSummary,
-        organization_summary_updated_at: new Date().toISOString(),
-        organization_summary_error: null,
-      })
-      .eq("id", id)
-      .select(CONTEXT_COLUMNS)
-      .single();
+  const summary = await ensureOrganizationSummary(supabase, updated.id, {
+    force: true,
+    select: CONTEXT_COLUMNS,
+  });
 
-    if (summaryUpdateError) throw summaryUpdateError;
-    return NextResponse.json({ context: summarized, summaryStatus: "ready" });
-  } catch (summaryError) {
-    const message = summaryError instanceof Error ? summaryError.message : String(summaryError);
-    console.warn(`Organization summary generation failed for ${id}: ${message}`);
-    await supabase
-      .from("servers")
-      .update({ organization_summary_error: message.slice(0, 500) })
-      .eq("id", id);
-    return NextResponse.json({ context: updated, summaryStatus: "pending" });
-  }
+  return NextResponse.json({
+    context: summary.server,
+    summaryStatus: summary.summaryStatus,
+  });
 }

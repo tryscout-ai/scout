@@ -9,56 +9,11 @@ interface AgentRecord {
 
 export interface WorkspaceContext {
   organization_summary: string | null;
-
-  company_name: string | null;
-  company_website: string | null;
-  company_description: string | null;
-  icp: string | null;
-  niche: string | null;
-  agent_goals: string | null;
-  current_workflow: string | null;
-  context_notes: string | null;
+  onboarding_completed_at?: string | null;
 }
 
-// export function formatWorkspaceContext(context: WorkspaceContext | null): string {
-//   return context?.organization_summary?.trim() ?? "";
-// }
-
 export function formatWorkspaceContext(context: WorkspaceContext | null): string {
-  if (!context) return "";
-
-  const summary = context.organization_summary?.trim();
-  if (summary) {
-    return summary;
-  }
-
-  const parts: string[] = [];
-
-  if (context.company_name)
-    parts.push(`Company: ${context.company_name}`);
-
-  if (context.company_website)
-    parts.push(`Website: ${context.company_website}`);
-
-  if (context.company_description)
-    parts.push(`Company description: ${context.company_description}`);
-
-  if (context.icp)
-    parts.push(`Ideal customer profile: ${context.icp}`);
-
-  if (context.niche)
-    parts.push(`Market: ${context.niche}`);
-
-  if (context.agent_goals)
-    parts.push(`Goals: ${context.agent_goals}`);
-
-  if (context.current_workflow)
-    parts.push(`Current workflow: ${context.current_workflow}`);
-
-  if (context.context_notes)
-    parts.push(`Additional context: ${context.context_notes}`);
-
-  return parts.join("\n");
+  return context?.organization_summary?.trim() ?? "";
 }
 
 export function buildSystemPrompt(
@@ -84,6 +39,8 @@ ${formattedWorkspaceContext ? `
 ## Organization Summary
 
 Use this as shared business context for every answer, recommendation, and handoff. Do not blindly repeat it; apply it when it makes your work more useful.
+Treat the ICP, niche, goals, and constraints in this summary as known context. Do not ask the user to repeat those details; only ask for information that is genuinely missing for the requested task.
+When a user says "my ICP", "our ICP", "my niche", "our niche", or similar, resolve that to this organization summary.
 
 ${formattedWorkspaceContext}
 ` : ""}

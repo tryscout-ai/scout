@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dispatchMessage } from "@/lib/agent-dispatcher";
+import { ensureOrganizationSummary, summaryErrorMessage } from "@/lib/organization-summary";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -26,6 +28,19 @@ async function hasFreshBridgeHeartbeat(
   return Boolean(keys?.length);
 }
 
+async function getChannelServerId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  channelId: string,
+) {
+  const { data: channel } = await supabase
+    .from("channels")
+    .select("server_id")
+    .eq("id", channelId)
+    .single();
+
+  return channel?.server_id ?? null;
+}
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -35,6 +50,18 @@ export async function POST(request: NextRequest) {
   if (!body.channel_id || typeof body.content !== "string" || !body.content.trim()) {
     return NextResponse.json({ error: "channel_id and content are required" }, { status: 400 });
   }
+
+  const serverId = await getChannelServerId(supabase, body.channel_id);
+  if (serverId) {
+    try {
+      await ensureOrganizationSummary(createAdminClient(), serverId);
+    } catch (summaryError) {
+      console.warn(
+        `Message context repair failed for workspace ${serverId}: ${summaryErrorMessage(summaryError)}`,
+      );
+    }
+  }
+
   const { data: message, error } = await supabase.from("messages").insert({
     channel_id: body.channel_id,
     sender_id: user.id,

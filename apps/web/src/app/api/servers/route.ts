@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { generateOrganizationSummary } from "@/lib/organization-summary";
+import { ensureOrganizationSummary } from "@/lib/organization-summary";
 import {
   isWorkspaceContextComplete,
   normalizeWorkspaceContext,
@@ -114,27 +114,9 @@ export async function POST(request: NextRequest) {
     role: "owner",
   });
 
-  try {
-    const organizationSummary = await generateOrganizationSummary(server);
-    const { data: summarized, error: summaryUpdateError } = await supabase
-      .from("servers")
-      .update({
-        organization_summary: organizationSummary,
-        organization_summary_updated_at: new Date().toISOString(),
-        organization_summary_error: null,
-      })
-      .eq("id", server.id)
-      .select()
-      .single();
-    if (summaryUpdateError) throw summaryUpdateError;
-    return NextResponse.json({ server: summarized, summaryStatus: "ready" });
-  } catch (summaryError) {
-    const message = summaryError instanceof Error ? summaryError.message : String(summaryError);
-    console.warn(`Organization summary generation failed for ${server.id}: ${message}`);
-    await supabase
-      .from("servers")
-      .update({ organization_summary_error: message.slice(0, 500) })
-      .eq("id", server.id);
-    return NextResponse.json({ server, summaryStatus: "pending" });
-  }
+  const summary = await ensureOrganizationSummary(supabase, server.id, { select: "*" });
+  return NextResponse.json({
+    server: summary.server,
+    summaryStatus: summary.summaryStatus,
+  });
 }

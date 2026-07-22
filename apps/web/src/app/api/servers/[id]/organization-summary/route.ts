@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateOrganizationSummary } from "@/lib/organization-summary";
+import { ensureOrganizationSummary, summaryErrorMessage } from "@/lib/organization-summary";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
-
-const SUMMARY_SOURCE_COLUMNS =
-  "id, owner_id, company_name, company_website, company_description, icp, niche, agent_goals, current_workflow, context_notes";
 
 /** Regenerates the compact prompt summary without changing the raw onboarding fields. */
 export async function POST(_request: NextRequest, context: RouteContext) {
@@ -19,39 +17,36 @@ export async function POST(_request: NextRequest, context: RouteContext) {
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: server, error } = await supabase
+  const admin = createAdminClient();
+  const { data: server, error } = await admin
     .from("servers")
-    .select(SUMMARY_SOURCE_COLUMNS)
+    .select("id, owner_id")
     .eq("id", id)
     .single();
 
   if (error || !server) {
-    return NextResponse.json({ error: error?.message || "Workspace not found" }, { status: 404 });
+    const message = error ? summaryErrorMessage(error) : "Workspace not found";
+    return NextResponse.json({ error: message }, { status: error ? 500 : 404 });
   }
   if (server.owner_id !== user.id) {
     return NextResponse.json({ error: "Only workspace owners can regenerate the summary" }, { status: 403 });
   }
 
+  let summary;
   try {
-    const organizationSummary = await generateOrganizationSummary(server);
-    const { error: updateError } = await supabase
-      .from("servers")
-      .update({
-        organization_summary: organizationSummary,
-        organization_summary_updated_at: new Date().toISOString(),
-        organization_summary_error: null,
-      })
-      .eq("id", id);
-    if (updateError) throw updateError;
-
-    return NextResponse.json({ organizationSummary, summaryStatus: "ready" });
+    summary = await ensureOrganizationSummary(admin, server.id, {
+      force: true,
+    });
   } catch (summaryError) {
-    const message = summaryError instanceof Error ? summaryError.message : String(summaryError);
-    console.warn(`Organization summary regeneration failed for ${id}: ${message}`);
-    await supabase
-      .from("servers")
-      .update({ organization_summary_error: message.slice(0, 500) })
-      .eq("id", id);
-    return NextResponse.json({ summaryStatus: "pending" }, { status: 202 });
+    return NextResponse.json({ error: summaryErrorMessage(summaryError) }, { status: 500 });
   }
+
+  const response = {
+    organizationSummary: summary.organizationSummary,
+    summaryStatus: summary.summaryStatus,
+  };
+
+  return NextResponse.json(response, {
+    status: summary.summaryStatus === "ready" ? 200 : 202,
+  });
 }

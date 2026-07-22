@@ -12,6 +12,7 @@ interface Server {
   slug: string;
   description: string | null;
   onboarding_completed_at: string | null;
+  organization_summary: string | null;
   owner_id: string;
 }
 
@@ -53,6 +54,14 @@ export default function ServerLayout({
       if (!data.onboarding_completed_at) {
         router.push(`/onboarding?server=${data.id}`);
         return;
+      }
+
+      if (data.owner_id === user.id && !data.organization_summary?.trim()) {
+        try {
+          await fetch(`/api/servers/${data.id}/organization-summary`, { method: "POST" });
+        } catch {
+          // Summary repair is best effort; bridge connect also retries it.
+        }
       }
 
       setServer(data as Server);

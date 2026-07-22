@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
+import { ensureOrganizationSummary } from "@/lib/organization-summary";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { signBridgeJwt } from "@/lib/jwt";
 
@@ -67,6 +68,8 @@ export async function POST(request: NextRequest) {
       { status: 404 }
     );
   }
+
+  await ensureOrganizationSummary(admin, server.id);
 
   // Load user's agents in this server
   const { data: agents } = await admin

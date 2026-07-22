@@ -41,6 +41,8 @@ Open the **SQL Editor** in your Supabase dashboard. Run the following files **in
 5. `onboarding-trigger.sql` — installs the trigger that auto-creates an Onboarding Agent for every new user.
 6. `fix-rls.sql` — adjusts a few RLS policies to avoid circular dependencies.
 
+If you are updating an older Scout database and see `column servers.organization_summary does not exist`, run `organization-summary-columns.sql` in the SQL Editor. It is idempotent and only adds the compact organization summary columns used by agent prompt context.
+
 > **Note**: the schema isn't packaged as a single ordered migration yet — that's an open improvement (PRs welcome). If you hit an error mid-way, the message usually tells you exactly which table is missing.
 
 After applying all files, verify in **Database → Tables** that you see at least: `profiles`, `servers`, `server_members`, `agents`, `channels`, `channel_members`, `messages`, `tasks`, `machine_keys`.
@@ -209,6 +211,8 @@ For larger usage, expect to upgrade Supabase to Pro mainly for Realtime quotas.
 **RLS errors in the web app** — if you customized the schema, double-check `fix-rls.sql` was the last thing applied. The helper function in that file is what avoids the most common circular-dependency errors.
 
 **Onboarding agent didn't appear after signup** — the `on_profile_created` trigger from `onboarding-trigger.sql` may not have run. Check **Database → Triggers** in Supabase to confirm it exists.
+
+**Agents ask for ICP/niche even though onboarding captured it** — check your web logs for `column servers.organization_summary does not exist`. If present, run `packages/db/src/organization-summary-columns.sql` in Supabase SQL Editor, then restart the web app and bridge. Agents only receive the compact `organization_summary`, so those columns must exist.
 
 ---
 

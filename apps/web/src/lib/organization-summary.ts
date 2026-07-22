@@ -1,4 +1,8 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 export interface OrganizationContext {
+  id?: string;
+  organization_summary?: string | null;
   company_name: string | null;
   company_website: string | null;
   company_description: string | null;
@@ -7,6 +11,14 @@ export interface OrganizationContext {
   agent_goals: string | null;
   current_workflow: string | null;
   context_notes: string | null;
+}
+
+type SummaryClient = Pick<SupabaseClient, "from">;
+
+export interface OrganizationSummaryResult<TServer = OrganizationContext> {
+  organizationSummary: string | null;
+  summaryStatus: "ready" | "pending";
+  server: TServer;
 }
 
 const SUMMARY_SYSTEM_PROMPT = `Create a compact, factual organization brief for recurring AI system prompts.
@@ -27,6 +39,27 @@ function sourceText(context: OrganizationContext) {
     .filter(([, value]) => Boolean(value?.trim()))
     .map(([label, value]) => `${label}: ${value!.trim()}`)
     .join("\n");
+}
+
+function compact(value: string, limit: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit - 3).trimEnd()}...`;
+}
+
+function fallbackOrganizationSummary(context: OrganizationContext) {
+  const parts = [
+    context.company_name?.trim() && `Company: ${compact(context.company_name, 120)}`,
+    context.company_website?.trim() && `Website: ${compact(context.company_website, 160)}`,
+    context.company_description?.trim() && `Does: ${compact(context.company_description, 260)}`,
+    context.icp?.trim() && `ICP: ${compact(context.icp, 260)}`,
+    context.niche?.trim() && `Niche: ${compact(context.niche, 180)}`,
+    context.agent_goals?.trim() && `Agent goals: ${compact(context.agent_goals, 220)}`,
+    context.current_workflow?.trim() && `Workflow: ${compact(context.current_workflow, 180)}`,
+    context.context_notes?.trim() && `Notes: ${compact(context.context_notes, 180)}`,
+  ].filter(Boolean);
+
+  return parts.join("; ");
 }
 
 function textFromChatCompletion(data: unknown) {
@@ -135,4 +168,123 @@ export async function generateOrganizationSummary(context: OrganizationContext) 
     console.warn(`Organization summary Gemini fallback failed: ${lastError}`);
   }
   throw new Error(lastError);
+}
+
+const SUMMARY_SOURCE_COLUMNS =
+  "id, organization_summary, company_name, company_website, company_description, icp, niche, agent_goals, current_workflow, context_notes";
+
+export function summaryErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const value = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    if (value.code === "42703" && typeof value.message === "string") {
+      return `${value.message}. Run packages/db/src/organization-summary-columns.sql in Supabase SQL Editor.`;
+    }
+    const parts = [value.message, value.details, value.hint, value.code]
+      .filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+    if (parts.length > 0) return parts.join(" | ");
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
+/**
+ * Ensures a compact summary exists for recurring prompts.
+ * Raw onboarding fields remain in Supabase, but callers should inject only the
+ * generated organization_summary into agent prompts.
+ */
+export async function ensureOrganizationSummary<TServer = OrganizationContext>(
+  supabase: SummaryClient,
+  serverId: string,
+  options: { force?: boolean; select?: string } = {},
+): Promise<OrganizationSummaryResult<TServer>> {
+  const selectColumns = options.select || SUMMARY_SOURCE_COLUMNS;
+  const { data: server, error } = await supabase
+    .from("servers")
+    .select(selectColumns)
+    .eq("id", serverId)
+    .single();
+
+  if (error || !server) {
+    throw error || new Error("Workspace not found");
+  }
+
+  const context = server as unknown as OrganizationContext;
+  const existingSummary = context.organization_summary?.trim();
+  if (!options.force && existingSummary) {
+    return {
+      organizationSummary: existingSummary,
+      summaryStatus: "ready",
+      server: server as unknown as TServer,
+    };
+  }
+
+  try {
+    const organizationSummary = await generateOrganizationSummary(context);
+    const { data: summarized, error: updateError } = await supabase
+      .from("servers")
+      .update({
+        organization_summary: organizationSummary,
+        organization_summary_updated_at: new Date().toISOString(),
+        organization_summary_error: null,
+      })
+      .eq("id", serverId)
+      .select(selectColumns)
+      .single();
+
+    if (updateError) throw updateError;
+
+    return {
+      organizationSummary,
+      summaryStatus: "ready",
+      server: summarized as unknown as TServer,
+    };
+  } catch (summaryError) {
+    const message = summaryErrorMessage(summaryError);
+    console.warn(`Organization summary generation failed for ${serverId}: ${message}`);
+    const organizationSummary = fallbackOrganizationSummary(context);
+    if (!organizationSummary) {
+      await supabase
+        .from("servers")
+        .update({ organization_summary_error: message.slice(0, 500) })
+        .eq("id", serverId);
+
+      return {
+        organizationSummary: null,
+        summaryStatus: "pending",
+        server: server as unknown as TServer,
+      };
+    }
+
+    const fallbackError = `LLM summary failed; stored deterministic fallback: ${message}`.slice(0, 500);
+    const { data: summarized, error: fallbackUpdateError } = await supabase
+      .from("servers")
+      .update({
+        organization_summary: organizationSummary,
+        organization_summary_updated_at: new Date().toISOString(),
+        organization_summary_error: fallbackError,
+      })
+      .eq("id", serverId)
+      .select(selectColumns)
+      .single();
+
+    if (fallbackUpdateError) {
+      console.warn(`Organization fallback summary update failed for ${serverId}: ${fallbackUpdateError.message}`);
+      return {
+        organizationSummary,
+        summaryStatus: "ready",
+        server: server as unknown as TServer,
+      };
+    }
+
+    return {
+      organizationSummary,
+      summaryStatus: "ready",
+      server: summarized as unknown as TServer,
+    };
+  }
 }

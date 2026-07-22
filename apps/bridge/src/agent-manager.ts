@@ -354,30 +354,25 @@ export class AgentManager {
     return data?.session_id || null;
   }
 
- private async loadWorkspaceContext(serverId: string): Promise<WorkspaceContext | null> {
+  private async loadWorkspaceContext(serverId: string): Promise<WorkspaceContext | null> {
+    const { data, error } = await this.supabase
+      .from("servers")
+      .select("organization_summary, onboarding_completed_at")
+      .eq("id", serverId)
+      .single();
 
-  console.log("serverId =", serverId);
+    if (error) {
+      console.warn(`  [Bridge] Failed to load organization summary: ${error.message}`);
+      return null;
+    }
 
-  const { data, error } = await this.supabase
-    .from("servers")
-    .select(`
-      organization_summary,
-      company_name,
-      company_website,
-      company_description,
-      icp,
-      niche,
-      agent_goals,
-      current_workflow,
-      context_notes
-    `)
-    .eq("id", serverId)
-    .single();
-      console.log("Workspace context:", data);
-      console.log("Supabase error =", error);
-  console.log("Server row =", data);
-  return (data as WorkspaceContext | null) ?? null;
-}
+    const context = data as WorkspaceContext | null;
+    if (context?.onboarding_completed_at && !context.organization_summary?.trim()) {
+      console.warn(`  [Bridge] Organization summary missing for workspace ${serverId}.`);
+    }
+
+    return context;
+  }
 
   async initAgent(agentId: string, agent: AgentRecord) {
     const workDir = join(this.agentsDir, agentId);
@@ -453,9 +448,6 @@ ${normalizeLegacyBranding(agent.description || agent.display_name)}
       .select("*")
       .eq("id", agentId)
       .single();
-
-      console.log("Agent:", agent);
-console.log("agent.server_id =", agent?.server_id);
     // Get MEMORY.md content
     const memoryPath = join(session.workDir, "MEMORY.md");
     const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
@@ -579,8 +571,6 @@ console.log("agent.server_id =", agent?.server_id);
       .select("*")
       .eq("id", agentId)
       .single();
-    console.log("Agent:", agent);
-console.log("agent.server_id =", agent?.server_id);
     const memoryPath = join(session.workDir, "MEMORY.md");
     const memoryContext = this.migrateLegacyBrandingInMemory(memoryPath);
 
@@ -833,9 +823,6 @@ console.log("agent.server_id =", agent?.server_id);
         .select("*")
         .eq("id", agentId)
         .single();
-
-        console.log("Agent:", agent);
-console.log("agent.server_id =", agent?.server_id);
       const workspaceContext = agent?.server_id
         ? await this.loadWorkspaceContext(agent.server_id)
         : null;
@@ -1242,9 +1229,6 @@ ${userMessage}`;
         .select("*")
         .eq("id", agentId)
         .single();
-
-        console.log("Agent:", agent);
-console.log("agent.server_id =", agent?.server_id);
     const workspaceContext = agent?.server_id
       ? await this.loadWorkspaceContext(agent.server_id)
       : null;

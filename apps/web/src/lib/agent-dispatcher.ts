@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ensureOrganizationSummary, summaryErrorMessage } from "@/lib/organization-summary";
 
 type Message = {
   id: string;
@@ -18,15 +19,8 @@ type Agent = {
   model: string;
 };
 
-type WorkspaceContext = { organization_summary: string | null;
-  company_name: string | null;
-  company_website: string | null;
-  company_description: string | null;
-  icp: string | null;
-  niche: string | null;
-  agent_goals: string | null;
-  current_workflow: string | null;
-  context_notes: string | null;
+type WorkspaceContext = {
+  organization_summary: string | null;
 };
 
 type LlmProvider = {
@@ -82,48 +76,16 @@ function responseShape(data: unknown) {
   });
 }
 
-// function formatWorkspaceContext(context: WorkspaceContext | null) {
-//   const summary = context?.organization_summary?.trim();
-//   return summary ? `Organization summary (use this to tailor every response):\n${summary}` : "";
-// }
-
 function formatWorkspaceContext(context: WorkspaceContext | null) {
-    if (!context) return "";
-
-    const summary = context.organization_summary?.trim();
-    if (summary) {
-        return `Organization summary (use this to tailor every response):\n${summary}`;
-    }
-
-    const parts: string[] = [];
-
-    if (context.company_name)
-        parts.push(`- Company: ${context.company_name}`);
-
-    if (context.company_website)
-        parts.push(`- Website: ${context.company_website}`);
-
-    if (context.company_description)
-        parts.push(`- What the company does: ${context.company_description}`);
-
-    if (context.icp)
-        parts.push(`- Ideal customer profile: ${context.icp}`);
-
-    if (context.niche)
-        parts.push(`- Market: ${context.niche}`);
-
-    if (context.agent_goals)
-        parts.push(`- Agent goals: ${context.agent_goals}`);
-
-    if (context.current_workflow)
-        parts.push(`- Current workflow: ${context.current_workflow}`);
-
-    if (context.context_notes)
-        parts.push(`- Additional constraints: ${context.context_notes}`);
-
-    return parts.length
-        ? `Workspace context (use this to tailor every response):\n${parts.join("\n")}`
-        : "";
+  const summary = context?.organization_summary?.trim();
+  return summary
+    ? [
+        "Organization summary (use this to tailor every response):",
+        summary,
+        "Use the ICP, niche, goals, and constraints from this summary as known context. Do not ask the user to repeat them; only ask for details that are genuinely missing for the requested task.",
+        "When a user says \"my ICP\", \"our ICP\", \"my niche\", \"our niche\", or similar, resolve that to this organization summary.",
+      ].join("\n")
+    : "";
 }
 
 function isMentioned(content: string, agent: Agent) {
@@ -256,16 +218,12 @@ async function generateReply(
   history: string,
   workspaceContext: WorkspaceContext | null,
 ) {
-  console.log("workspaceContext =", JSON.stringify(workspaceContext, null, 2));
-
   const formattedContext = formatWorkspaceContext(workspaceContext);
-  console.log("Formatted Context = ", formattedContext)
   const system = [
     agent.system_prompt || `You are ${agent.display_name}, a helpful Scout agent.`,
-    formatWorkspaceContext(workspaceContext),
+    formattedContext,
     "Reply directly to the user. If another agent should take the next step, mention that agent exactly once.",
   ].filter(Boolean).join("\n\n");
-  console.log(system);
   let lastError = "";
   let shouldTryNextProvider = false;
   for (const provider of providersFor(agent)) {
@@ -375,21 +333,14 @@ export async function dispatchMessage(message: Message): Promise<void> {
       .from("agents")
       .select("id, name, display_name, description, system_prompt, model")
       .in("id", agentIds),
-    supabase
-      .from("servers")
-.select(`
-  organization_summary,
-  company_name,
-  company_website,
-  company_description,
-  icp,
-  niche,
-  agent_goals,
-  current_workflow,
-  context_notes
-`)
-      .eq("id", channel.server_id)
-      .single(),
+    ensureOrganizationSummary<WorkspaceContext>(supabase, channel.server_id)
+      .then((summary) => ({ data: summary.server }))
+      .catch((error) => {
+        console.warn(
+          `Agent dispatch could not ensure organization summary for ${channel.server_id}: ${summaryErrorMessage(error)}`,
+        );
+        return { data: null };
+      }),
   ]);
   if (!agents?.length) return;
 

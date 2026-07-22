@@ -7,7 +7,7 @@ const navItems = [
   { label: "ABOUT", href: "/relace/about" },
   //{ label: "DOCS", href: "/docs" },
   //{ label: "BLOG", href: "#" },
-  { label: "CONTACT", href: "mailto:hello@runscout.app" },
+  { label: "CONTACT", href: "mailto:darshan@runscout.app" },
 ];
 const featureCards = [
   ["Specialized agents", "Research, enrichment, outreach, and ops agents each stay focused on their lane."],
@@ -41,7 +41,7 @@ const faqs = [
   {
     question: "Can I self-host Scout agents?",
     answer:
-      "Self-hosting is on our roadmap for teams with strict data residency requirements. Please reachout to know more: hello@runscout.app",
+      "Self-hosting is on our roadmap for teams with strict data residency requirements. Please reachout to know more: darshan@runscout.app",
   },
 ];
 const testimonials = [
@@ -569,7 +569,7 @@ export default function RelaceInspiredLandingPage() {
           <div className="flex gap-10 text-xs font-medium">
             <Link href="/relace/about">ABOUT US</Link>
             <Link href="#">BLOG</Link>
-            <Link href="mailto:hello@runscout.app">CONTACT</Link>
+            <Link href="mailto:darshan@runscout.app">CONTACT</Link>
           </div>
           <div className="flex items-center gap-3 text-black">
             <span className="grid size-8 place-items-center text-[18px] leading-none">X</span>

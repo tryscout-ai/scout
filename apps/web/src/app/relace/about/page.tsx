@@ -7,7 +7,7 @@ const navItems = [
   { label: "ABOUT", href: "/relace/about" },
   //{ label: "DOCS", href: "/docs" },
   //{ label: "BLOG", href: "#" },
-  { label: "CONTACT", href: "mailto:hello@runscout.app" },
+  { label: "CONTACT", href: "mailto:darshan@runscout.app" },
 ];
 
 const demoUrl = "https://cal.com/darshannn/scout-demo";
@@ -128,7 +128,7 @@ export default function RelaceAboutPage() {
           <div className="flex gap-10 text-xs font-medium">
             <Link href="/relace/about">ABOUT US</Link>
             <Link href="#">BLOG</Link>
-            <Link href="mailto:hello@runscout.app">CONTACT</Link>
+            <Link href="mailto:darshan@runscout.app">CONTACT</Link>
           </div>
           <div className="flex items-center gap-3 text-black">
             <span className="grid size-8 place-items-center text-[18px] leading-none">X</span>

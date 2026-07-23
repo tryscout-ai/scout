@@ -37,6 +37,17 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const publicPaths = [
+    "/",
+    "/sitemap.xml",
+    "/robots.txt",
+    "/favicon.ico",
+  ];
+
+  if (publicPaths.includes(request.nextUrl.pathname)) {
+    return supabaseResponse;
+  }
+
   // Redirect unauthenticated users to login (except auth pages)
   if (
     !user &&
